@@ -630,12 +630,11 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
                 OverlayEntry(builder: (context) {
                   final showActionButton = !_showBar || keyboardIsVisible || _showGestureHelp;
                   return _buildDraggableFAB(showActionButton, keyboardIsVisible);
-                if (_showCustomKeyboard)
                 }),
+                if (_showCustomKeyboard)
                   OverlayEntry(builder: (context) {
                     return _buildCustomKeyboard(context);
                   }),
-                }),
               ],
             )),
           )),
