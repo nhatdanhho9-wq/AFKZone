@@ -1,0 +1,70 @@
+AFK ZONE - LICENSE
+
+This project contains components under different licenses:
+
+================================================================================
+1. RustDesk Core Components (AGPL-3.0)
+================================================================================
+
+The RustDesk remote desktop functionality is licensed under AGPL-3.0.
+
+Copyright (C) RustDesk Contributors
+Copyright (C) 2025 AFK Zone (modifications)
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+Source code is available at: https://github.com/nhatdanhho9-wq/rustdesk
+
+================================================================================
+2. AFK Zone Proprietary Components
+================================================================================
+
+The following components are proprietary and owned by AFK Zone:
+
+- License Management System (lib/common/license_service.dart)
+- Payment Integration System (lib/services/payment_service.dart)
+- Shopping Cart System (lib/services/cart_service.dart, lib/models/cart_model.dart)
+- Product Management (lib/services/product_service.dart, lib/models/product_model.dart)
+- Notification System (lib/services/notification_service.dart, lib/models/notification_model.dart)
+- AFK Zone Branding (logo, icons, colors)
+- Backend License API (not included in this repository)
+
+Copyright (C) 2025 AFK Zone. All rights reserved.
+
+These components may not be used, copied, modified, or distributed without
+explicit written permission from AFK Zone.
+
+================================================================================
+3. Third-Party Dependencies
+================================================================================
+
+This project uses various open-source libraries. See pubspec.yaml and
+Cargo.toml for full list of dependencies and their respective licenses.
+
+================================================================================
+CREDITS
+================================================================================
+
+AFK Zone is built on top of the excellent RustDesk open-source project.
+We are grateful to the RustDesk team and contributors for their work.
+
+RustDesk: https://github.com/rustdesk/rustdesk
+
+================================================================================
+CONTACT
+================================================================================
+
+For licensing inquiries: nhatdanhho9@gmail.com
+Website: https://afkzone.cloud
+
