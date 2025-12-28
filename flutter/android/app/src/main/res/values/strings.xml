@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">AFK Zone</string>
-    <string name="accessibility_service_description">Allow other devices to control your phone using virtual touch, when RustDesk screen sharing is established</string>
+    <string name="accessibility_service_description">Allow remote control of your device through AFK Zone when screen sharing is active</string>
 </resources>
