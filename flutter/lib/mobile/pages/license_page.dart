@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'license_service.dart';
+import 'payment_screen.dart';
 import 'dart:io';
 
 class LicensePage extends StatefulWidget {
@@ -206,6 +207,34 @@ class _LicensePageState extends State<LicensePage> {
                                 'KÍCH HOẠT',
                                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                               ),
+
+                      SizedBox(height: 12),
+
+                      OutlinedButton(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => PaymentScreen(),
+                            ),
+                          );
+                        },
+                        style: OutlinedButton.styleFrom(
+                          padding: EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          side: BorderSide(color: Colors.blue, width: 2),
+                        ),
+                        child: Text(
+                          'MUA LICENSE',
+                          style: TextStyle(
+                            fontSize: 16, 
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue,
+                          ),
+                        ),
+                      ),
                       ),
                     ],
                   ),

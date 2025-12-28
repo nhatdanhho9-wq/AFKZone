@@ -79,6 +79,9 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
   final FocusNode _mobileFocusNode = FocusNode();
   final FocusNode _physicalFocusNode = FocusNode();
   var _showEdit = false; // use soft keyboard
+  // Custom keyboard state
+  bool _showCustomKeyboard = false;
+  Offset _keyboardPosition = Offset.zero;
 
   InputModel get inputModel => gFFI.inputModel;
   SessionID get sessionId => gFFI.sessionId;
@@ -339,25 +342,164 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
   }
 
   void openKeyboard() {
-    gFFI.invokeMethod("enable_soft_keyboard", true);
-    // destroy first, so that our _value trick can work
-    _value = initText;
-    _textController.text = _value;
-    setState(() => _showEdit = false);
-    _timer?.cancel();
-    _timer = Timer(kMobileDelaySoftKeyboard, () {
-      // show now, and sleep a while to requestFocus to
-      // make sure edit ready, so that keyboard won't show/hide/show/hide happen
-      setState(() => _showEdit = true);
-      _timer?.cancel();
-      _timer = Timer(kMobileDelaySoftKeyboardFocus, () {
-        SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
-            overlays: SystemUiOverlay.values);
-        _mobileFocusNode.requestFocus();
-      });
+    // Toggle custom keyboard instead of system keyboard
+    setState(() {
+      _showCustomKeyboard = !_showCustomKeyboard;
+      if (_showCustomKeyboard && _keyboardPosition == Offset.zero) {
+        // Center the keyboard on first open
+        // Will be calculated properly in build method with MediaQuery
+        _keyboardPosition = Offset(50, 300); // Placeholder, will be centered in widget
+      }
     });
   }
 
+  Widget _buildCustomKeyboard(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+    final keyboardHeight = screenSize.height * 0.2; // 20% of screen
+    final keyboardWidth = screenSize.width * 0.9; // 90% of screen width
+    
+    // Center position if not set yet
+    if (_keyboardPosition == Offset.zero) {
+      _keyboardPosition = Offset(
+        (screenSize.width - keyboardWidth) / 2,
+        (screenSize.height - keyboardHeight) / 2,
+      );
+    }
+    
+    return Positioned(
+      left: _keyboardPosition.dx,
+      top: _keyboardPosition.dy,
+      child: GestureDetector(
+        onPanUpdate: (details) {
+          setState(() {
+            _keyboardPosition = Offset(
+              (_keyboardPosition.dx + details.delta.dx).clamp(0.0, screenSize.width - keyboardWidth),
+              (_keyboardPosition.dy + details.delta.dy).clamp(0.0, screenSize.height - keyboardHeight),
+            );
+          });
+        },
+        child: Container(
+          width: keyboardWidth,
+          height: keyboardHeight,
+          decoration: BoxDecoration(
+            color: Colors.black87,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.blue, width: 2),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black54,
+                blurRadius: 10,
+                spreadRadius: 2,
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              // Header with title and close button
+              Container(
+                height: 30,
+                padding: EdgeInsets.symmetric(horizontal: 8),
+                decoration: BoxDecoration(
+                  color: Colors.blue,
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(10),
+                    topRight: Radius.circular(10),
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Icon(Icons.keyboard, color: Colors.white, size: 18),
+                    Text(
+                      'Keyboard',
+                      style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.close, color: Colors.white, size: 18),
+                      padding: EdgeInsets.zero,
+                      constraints: BoxConstraints(),
+                      onPressed: () {
+                        setState(() {
+                          _showCustomKeyboard = false;
+                        });
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              // Keyboard layout
+              Expanded(
+                child: Padding(
+                  padding: EdgeInsets.all(4),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _buildKeyboardRow(['1', '2', '3', '4', '5', '6', '7', '8', '9', '0']),
+                      _buildKeyboardRow(['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p']),
+                      _buildKeyboardRow(['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l']),
+                      _buildKeyboardRow(['z', 'x', 'c', 'v', 'b', 'n', 'm', '<', '>', '?']),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          _buildKey('Space', flex: 4, width: keyboardWidth * 0.4),
+                          _buildKey('Enter', flex: 2, width: keyboardWidth * 0.2),
+                          _buildKey('⌫', flex: 1, width: keyboardWidth * 0.15),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildKeyboardRow(List<String> keys) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: keys.map((key) => _buildKey(key)).toList(),
+    );
+  }
+
+  Widget _buildKey(String key, {int flex = 1, double? width}) {
+    return Padding(
+      padding: EdgeInsets.all(2),
+      child: InkWell(
+        onTap: () => _sendKey(key),
+        child: Container(
+          width: width ?? 28,
+          height: 28,
+          decoration: BoxDecoration(
+            color: Colors.grey[800],
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(color: Colors.grey[600]!),
+          ),
+          child: Center(
+            child: Text(
+              key,
+              style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _sendKey(String key) {
+    // Send key to remote desktop
+    if (key == 'Space') {
+      inputModel.inputKey(' ');
+    } else if (key == 'Enter') {
+      inputModel.inputKey('\n');
+    } else if (key == '⌫') {
+      inputModel.inputKey('backspace');
+    } else {
+      inputModel.inputKey(key);
+    }
+  }
   Widget _bottomWidget() => _showGestureHelp
       ? getGestureHelp()
       : (_showBar && gFFI.ffiModel.pi.displays.isNotEmpty
@@ -437,8 +579,8 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
         return false;
       },
       child: Scaffold(
-          bottomNavigationBar: Obx(() => Stack(
-                alignment: Alignment.bottomCenter,
+          appBar: PreferredSize(preferredSize: Size.fromHeight(60), child: Obx(() => Stack(
+                alignment: Alignment.topCenter,
                 children: [
                   gFFI.ffiModel.pi.isSet.isTrue &&
                           gFFI.ffiModel.waitForFirstImage.isTrue
@@ -452,7 +594,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
                       ? emptyOverlay(MyTheme.canvasColor)
                       : Offstage(),
                 ],
-              )),
+              )),),
           body: Obx(
             () => getRawPointerAndKeyBody(Overlay(
               initialEntries: [
@@ -488,6 +630,10 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
                 OverlayEntry(builder: (context) {
                   final showActionButton = !_showBar || keyboardIsVisible || _showGestureHelp;
                   return _buildDraggableFAB(showActionButton, keyboardIsVisible);
+                if (_showCustomKeyboard)
+                  OverlayEntry(builder: (context) {
+                    return _buildCustomKeyboard(context);
+                  }),
                 }),
               ],
             )),
