@@ -8,7 +8,6 @@ import 'package:flutter_hbb/desktop/pages/desktop_setting_page.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 import 'package:settings_ui/settings_ui.dart';
-import 'license_info_page.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
@@ -86,7 +85,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   var _fingerprint = "";
   var _buildDate = "";
   var _autoDisconnectTimeout = "";
-  var _hideServer = true;
+  var _hideServer = false;
   var _hideProxy = false;
   var _hideNetwork = false;
   var _hideWebSocket = false;
@@ -656,25 +655,42 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
     final settings = SettingsList(
       sections: [
         customClientSection,
-        SettingsSection(
-          title: Text('License'),
-          tiles: [
-            SettingsTile(
-              title: Text('License Info'),
-              description: Text('Xem thông tin license của bạn'),
-              leading: Icon(Icons.card_membership),
-              onPressed: (context) {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (c) => LicenseInfoPage()),
-                );
-              },
-            ),
-          ],
-        ),
         if (!bind.isDisableAccount())
+          SettingsSection(
+            title: Text(translate('Account')),
+            tiles: [
+              SettingsTile(
+                title: Obx(() => Text(gFFI.userModel.userName.value.isEmpty
+                    ? translate('Login')
+                    : '${translate('Logout')} (${gFFI.userModel.userName.value})')),
+                leading: Icon(Icons.person),
+                onPressed: (context) {
+                  if (gFFI.userModel.userName.value.isEmpty) {
+                    loginDialog();
+                  } else {
+                    logOutConfirmDialog();
+                  }
+                },
               ),
             ],
+          ),
+        SettingsSection(title: Text(translate("Settings")), tiles: [
+          if (!disabledSettings && !_hideNetwork && !_hideServer)
+            SettingsTile(
+                title: Text(translate('ID/Relay Server')),
+                leading: Icon(Icons.cloud),
+                onPressed: (context) {
+                  showServerSettings(gFFI.dialogManager, (callback) async {
+                    _isUsingPublicServer = await bind.mainIsUsingPublicServer();
+                    setState(callback);
+                  });
+                }),
+          if (!_hideNetwork && !_hideProxy)
+            SettingsTile(
+                title: Text(translate('Socks5/Http(s) Proxy')),
+                leading: Icon(Icons.network_ping),
+                onPressed: (context) {
+                  changeSocks5Proxy();
                 }),
           if (!disabledSettings && !_hideNetwork && !_hideWebSocket)
             SettingsTile.switchTile(

@@ -13,7 +13,7 @@ class PaymentService {
   }) async {
     try {
       final response = await http.post(
-        Uri.parse('\/payment/bank/create'),
+        Uri.parse('${API_URL}/payment/bank/create'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({
           'tier': tier,
@@ -29,7 +29,7 @@ class PaymentService {
         throw Exception(error['detail'] ?? 'Failed to create order');
       }
     } catch (e) {
-      print('Error creating bank order: \);
+      print('Error creating bank order: $e');
       rethrow;
     }
   }
@@ -39,7 +39,7 @@ class PaymentService {
   static Future<Map<String, dynamic>> checkPaymentStatus(String transCode) async {
     try {
       final response = await http.get(
-        Uri.parse('\/payment/bank/status?trans_code=\),
+        Uri.parse('${API_URL}/payment/bank/status?trans_code=$transCode'),
       ).timeout(Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -50,7 +50,7 @@ class PaymentService {
         throw Exception('Failed to check payment status');
       }
     } catch (e) {
-      print('Error checking payment status: \);
+      print('Error checking payment status: $e');
       rethrow;
     }
   }
