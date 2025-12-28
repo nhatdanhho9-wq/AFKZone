@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'license_service.dart';
+import 'package:flutter_hbb/common/license_service.dart';
 import 'payment_screen.dart';
 import 'dart:io';
 

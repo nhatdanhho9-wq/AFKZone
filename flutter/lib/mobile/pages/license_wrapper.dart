@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'license_service.dart';
-import 'license_page.dart';
+import 'package:flutter_hbb/common/license_service.dart';
+import 'license_page.dart' as afk;
 import 'dart:async';
 
 class LicenseWrapper extends StatefulWidget {
@@ -152,7 +152,7 @@ class _LicenseWrapperState extends State<LicenseWrapper> {
     }
 
     if (!_hasValidLicense) {
-      return LicensePage(onLicenseActivated: _onLicenseActivated);
+      return afk.LicensePage(onLicenseActivated: _onLicenseActivated);
     }
 
     return widget.child;
