@@ -1,44 +1,109 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../services/product_service.dart';
+import '../services/cart_service.dart';
+import '../../models/product_model.dart';
 import 'payment_qr_screen.dart';
+import 'cart_page.dart';
 
-class PaymentScreen extends StatelessWidget {
+class PaymentScreen extends StatefulWidget {
+  @override
+  _PaymentScreenState createState() => _PaymentScreenState();
+}
+
+class _PaymentScreenState extends State<PaymentScreen> {
+  bool _isLoading = true;
+  String? _error;
+  Map<String, List<Product>> _productsByTier = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProducts();
+  }
+
+  Future<void> _loadProducts() async {
+    try {
+      final products = await ProductService.fetchProductsByTier();
+      setState(() {
+        _productsByTier = products;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = 'KhÃ´ng thá»ƒ táº£i danh sÃ¡ch gÃ³i';
+        _isLoading = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text('Mua License AFK Zone'),
         backgroundColor: Colors.deepPurple,
-      ),
-      body: ListView(
-        padding: EdgeInsets.all(16),
-        children: [
-          Text(
-            'Chọn gói license',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            textAlign: TextAlign.center,
+        actions: [
+          Consumer<CartService>(
+            builder: (context, cart, child) {
+              return Stack(
+                children: [
+                  IconButton(
+                    icon: Icon(Icons.shopping_cart),
+                    onPressed: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (c) => CartPage()));
+                    },
+                  ),
+                  if (cart.itemCount > 0)
+                    Positioned(
+                      right: 8,
+                      top: 8,
+                      child: Container(
+                        padding: EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          shape: BoxShape.circle,
+                        ),
+                        constraints: BoxConstraints(minWidth: 18, minHeight: 18),
+                        child: Text(
+                          '\',
+                          style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
           ),
-          SizedBox(height: 24),
-          _buildTierSection(context, 'Basic', Colors.blue, [
-            {'days': 7, 'price': '1.000đ'},
-            {'days': 30, 'price': '50.000đ'},
-            {'days': 90, 'price': '120.000đ'},
-          ], 'basic'),
-          SizedBox(height: 16),
-          _buildTierSection(context, 'Pro', Colors.purple, [
-            {'days': 30, 'price': '100.000đ'},
-            {'days': 90, 'price': '250.000đ'},
-          ], 'pro'),
-          SizedBox(height: 16),
-          _buildTierSection(context, 'Enterprise', Colors.orange, [
-            {'days': 30, 'price': '200.000đ'},
-            {'days': 90, 'price': '500.000đ'},
-          ], 'enterprise'),
         ],
       ),
+      body: _isLoading
+          ? Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Center(child: Text(_error!))
+              : RefreshIndicator(
+                  onRefresh: _loadProducts,
+                  child: ListView(
+                    padding: EdgeInsets.all(16),
+                    children: [
+                      Text('Chá»n gÃ³i license', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                      SizedBox(height: 24),
+                      if (_productsByTier['basic']?.isNotEmpty ?? false)
+                        _buildTierSection('Basic', Colors.blue, _productsByTier['basic']!),
+                      SizedBox(height: 16),
+                      if (_productsByTier['pro']?.isNotEmpty ?? false)
+                        _buildTierSection('Pro', Colors.purple, _productsByTier['pro']!),
+                      SizedBox(height: 16),
+                      if (_productsByTier['enterprise']?.isNotEmpty ?? false)
+                        _buildTierSection('Enterprise', Colors.orange, _productsByTier['enterprise']!),
+                    ],
+                  ),
+                ),
     );
   }
 
-  Widget _buildTierSection(BuildContext context, String name, Color color, List<Map<String, dynamic>> options, String tier) {
+  Widget _buildTierSection(String name, Color color, List<Product> products) {
     return Card(
       elevation: 4,
       child: Padding(
@@ -46,38 +111,69 @@ class PaymentScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              name,
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color),
+            Row(
+              children: [
+                Icon(Icons.star, color: color),
+                SizedBox(width: 8),
+                Text(name, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
+                Spacer(),
+                Text('\ thiáº¿t bá»‹', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              ],
             ),
             SizedBox(height: 12),
-            ...options.map((opt) => Padding(
-              padding: EdgeInsets.only(bottom: 8),
-              child: ElevatedButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (c) => PaymentQRScreen(
-                        tier: tier,
-                        durationDays: opt['days'] as int,
-                      ),
-                    ),
-                  );
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: color,
-                  minimumSize: Size(double.infinity, 56),
-                ),
-                child: Text(
-                  '${opt['days']} ngày - ${opt['price']}',
-                  style: TextStyle(fontSize: 18, color: Colors.white),
-                ),
-              ),
-            )).toList(),
+            ...products.map((product) => _buildProductButton(product, color)).toList(),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildProductButton(Product product, Color color) {
+    return Consumer<CartService>(
+      builder: (context, cart, child) {
+        final inCart = cart.hasProduct(product.id);
+        return Padding(
+          padding: EdgeInsets.only(bottom: 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (c) => PaymentQRScreen(tier: product.tier, durationDays: product.durationDays),
+                      ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: color,
+                    minimumSize: Size(0, 56),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('\ ngÃ y', style: TextStyle(fontSize: 18, color: Colors.white)),
+                      Text(product.formattedPrice, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                    ],
+                  ),
+                ),
+              ),
+              SizedBox(width: 8),
+              IconButton(
+                icon: Icon(inCart ? Icons.shopping_cart : Icons.add_shopping_cart),
+                color: inCart ? Colors.green : color,
+                onPressed: () {
+                  cart.addToCart(product);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('ÄÃ£ thÃªm vÃ o giá» hÃ ng'), duration: Duration(seconds: 1)),
+                  );
+                },
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
