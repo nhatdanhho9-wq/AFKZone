@@ -1,6 +1,6 @@
 {
-  "server": "172.26.31.115",
-  "key": "EXOW136uTrC0PYYrkavoJH7SjkFlzPjB+vzzpvjsybw=",
-  "relay": "",
-  "api": "http://172.26.31.115:21116"
+  "server": "id.afkzone.cloud",
+  "key": "EX0W136uTrC0PYYrkavoJH7SjkFlzPjB+vzzpvjsybw=",
+  "relay": "id.afkzone.cloud",
+  "api": "https://api.afkzone.cloud"
 }
