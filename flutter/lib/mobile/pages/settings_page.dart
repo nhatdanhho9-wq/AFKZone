@@ -685,6 +685,14 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
           if (!disabledSettings && !_hideNetwork && !_hideWebSocket)
             SettingsTile.switchTile(
               title: Text(translate('Use WebSocket')),
+              initialValue: _allowWebSocket,
+              onToggle: isOptionFixed(kOptionAllowWebSocket)
+                  ? null
+                  : (v) async {
+                      await mainSetBoolOption(kOptionAllowWebSocket, v);
+                      final newValue =
+                          await mainGetBoolOption(kOptionAllowWebSocket);
+                      setState(() {
                         _allowWebSocket = newValue;
                       });
                     },
