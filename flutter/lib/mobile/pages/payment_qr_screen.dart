@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../services/payment_service.dart';
-import '../../common/license_service.dart';
+import 'package:flutter_hbb/services/payment_service.dart';
+import 'package:flutter_hbb/common/license_service.dart';
 
 class PaymentQRScreen extends StatefulWidget {
   final String tier;
@@ -111,8 +111,8 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
         await prefs.setBool('afk_license_active', true);
         expiresAt = result['expires_at'];
         maxDevices = result['max_devices'] ?? 1;
-        await prefs.setInt('afk_license_expires_at', expiresAt);
-        await prefs.setInt('afk_max_devices', maxDevices);
+        await prefs.setInt('afk_license_expires_at', expiresAt ?? 0);
+        await prefs.setInt('afk_max_devices', maxDevices ?? 1);
       }
     } catch (e) {
       print('Auto-activation error: $e');

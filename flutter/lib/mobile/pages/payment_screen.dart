@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../services/product_service.dart';
-import '../services/cart_service.dart';
-import '../../models/product_model.dart';
+import 'package:flutter_hbb/services/product_service.dart';
+import 'package:flutter_hbb/services/cart_service.dart';
+import 'package:flutter_hbb/models/product_model.dart';
 import 'payment_qr_screen.dart';
 import 'cart_page.dart';
 

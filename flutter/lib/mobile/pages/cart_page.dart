@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../services/cart_service.dart';
-import '../models/cart_model.dart';
+import 'package:flutter_hbb/services/cart_service.dart';
+import 'package:flutter_hbb/models/cart_model.dart';
 import 'payment_qr_screen.dart';
 
 class CartPage extends StatelessWidget {

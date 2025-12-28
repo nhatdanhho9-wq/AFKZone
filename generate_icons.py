@@ -40,7 +40,7 @@ def resize_image(input_path, output_path, size):
     
     # Save
     img_resized.save(output_path, 'PNG', optimize=True)
-    print(f"[OK] Created: {output_path} ({size}x{size})")
+    print(f"✓ Created: {output_path} ({size}x{size})")
 
 def main():
     print("=" * 60)
@@ -55,7 +55,7 @@ def main():
     base_path = "flutter/android/app/src/main/res"
     
     # Generate launcher icons
-    print("Generating launcher icons...")
+    print("📱 Generating launcher icons...")
     for folder, size in icon_sizes.items():
         output_dir = os.path.join(base_path, folder)
         os.makedirs(output_dir, exist_ok=True)
@@ -69,7 +69,7 @@ def main():
         resize_image(source_logo, output_file_round, size)
     
     print()
-    print("Generating foreground icons (adaptive)...")
+    print("🎨 Generating foreground icons (adaptive)...")
     for folder, size in foreground_sizes.items():
         output_dir = os.path.join(base_path, folder)
         os.makedirs(output_dir, exist_ok=True)
@@ -79,7 +79,7 @@ def main():
         resize_image(source_logo, output_file, size)
     
     print()
-    print("Generating notification icon...")
+    print("🔔 Generating notification icon...")
     # Notification icon (small, monochrome-style but we'll use colored for now)
     notification_dir = os.path.join(base_path, "mipmap-xxhdpi")
     notification_file = os.path.join(notification_dir, "ic_stat_logo.png")
@@ -87,7 +87,7 @@ def main():
     
     print()
     print("=" * 60)
-    print("ALL ICONS GENERATED SUCCESSFULLY!")
+    print("✅ ALL ICONS GENERATED SUCCESSFULLY!")
     print("=" * 60)
 
 if __name__ == "__main__":
