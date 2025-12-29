@@ -78,6 +78,7 @@ class LicenseService {
   // Activate license key
   static Future<Map<String, dynamic>?> activateLicense(String licenseKey, String deviceId) async {
     try {
+      print('🔄 activateLicense: licenseKey=$licenseKey, deviceId=$deviceId');
       final response = await http.post(
         Uri.parse('$API_URL/activate'),
         headers: {'Content-Type': 'application/json'},
@@ -87,17 +88,20 @@ class LicenseService {
         }),
       ).timeout(Duration(seconds: 10));
 
+      print('🔄 activateLicense: statusCode=${response.statusCode}, body=${response.body}');
+
       if (response.statusCode == 200) {
         final result = json.decode(response.body);
         print('✅ Activate API response: $result');
+        print('✅ Activate API - status: ${result['status']}, tier: ${result['tier']}, expires_at: ${result['expires_at']}');
         return result;
       } else {
         final error = json.decode(response.body);
-        print('❌ Activate API error: ${error['detail']}');
+        print('❌ Activate API error: status=${response.statusCode}, detail=${error['detail']}');
         throw Exception(error['detail'] ?? 'Activation failed');
       }
     } catch (e) {
-      print('Error activating license: $e');
+      print('❌ Error activating license: $e');
       rethrow;
     }
   }

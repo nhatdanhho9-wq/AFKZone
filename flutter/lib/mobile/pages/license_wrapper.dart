@@ -98,17 +98,22 @@ class LicenseWrapperState extends State<LicenseWrapper> {
   }
 
   Future<void> onLicenseActivated(Map<String, dynamic> result) async {
+    print('🔄 onLicenseActivated called with keys: ${result.keys}');
     final prefs = await SharedPreferences.getInstance();
 
     // Extract license_key from result (added by license_page.dart)
     String? licenseKey = result['license_key'];
+    print('🔄 onLicenseActivated - licenseKey from result: $licenseKey');
+    
     if (licenseKey == null && result['message'] != null) {
       // From trial response
       licenseKey = result['message'].toString().split('License key: ').last;
+      print('🔄 onLicenseActivated - licenseKey from message: $licenseKey');
     }
 
     if (licenseKey != null) {
       final deviceId = await LicenseService.getDeviceFingerprint();
+      print('🔄 onLicenseActivated - Saving license: $licenseKey, deviceId: $deviceId');
       
       await prefs.setString('license_key', licenseKey);
       await prefs.setString('device_id', deviceId);
@@ -126,11 +131,13 @@ class LicenseWrapperState extends State<LicenseWrapper> {
             expiresAt = result['expires_at'] as int;
           }
           await prefs.setInt('afk_license_expires_at', expiresAt);
+          print('🔄 onLicenseActivated - Saved expires_at: $expiresAt');
         } catch (e) {
-          print('Error parsing expires_at: $e');
+          print('❌ Error parsing expires_at: $e');
         }
       }
 
+      print('🔄 onLicenseActivated - Updating state...');
       setState(() {
         _licenseKey = licenseKey;
         _deviceId = deviceId;
@@ -138,9 +145,11 @@ class LicenseWrapperState extends State<LicenseWrapper> {
         _serverConfigs = result;
       });
 
+      print('🔄 onLicenseActivated - Updating server configs...');
       await _updateServerConfigs(result);
+      print('✅ onLicenseActivated - Completed successfully');
     } else {
-      print('Warning: license_key not found in activation result');
+      print('❌ Warning: license_key not found in activation result. Keys: ${result.keys}');
     }
   }
 

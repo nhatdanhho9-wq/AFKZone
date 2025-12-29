@@ -81,27 +81,40 @@ class _LicensePageState extends State<LicensePage> {
           deviceId,
         );
         print('✅ Step 2 result: $activationResult');
+        print('✅ Step 2 - Checking status: ${activationResult?['status']}, keys: ${activationResult?.keys}');
 
-        if (activationResult != null && (activationResult['status'] == 'activated' || activationResult['status'] == 'active')) {
-          // Add license_key to result so callback can save it
-          activationResult['license_key'] = licenseKey;
-          print('✅ Step 3: Calling onLicenseActivated callback...');
-          setState(() => _isLoading = false);
-          try {
-            await widget.onLicenseActivated(activationResult);
-            print('✅ Step 3: Callback completed successfully');
-          } catch (e, stackTrace) {
-            print('❌ Step 3: Callback error: $e');
-            print('Stack trace: $stackTrace');
+        if (activationResult != null) {
+          final status = activationResult['status'];
+          print('✅ Step 2 - Status check: status=$status, isActivated=${status == 'activated'}, isActive=${status == 'active'}');
+          
+          if (status == 'activated' || status == 'active') {
+            // Add license_key to result so callback can save it
+            activationResult['license_key'] = licenseKey;
+            print('✅ Step 3: Calling onLicenseActivated callback with: ${activationResult.keys}');
+            setState(() => _isLoading = false);
+            try {
+              await widget.onLicenseActivated(activationResult);
+              print('✅ Step 3: Callback completed successfully');
+            } catch (e, stackTrace) {
+              print('❌ Step 3: Callback error: $e');
+              print('Stack trace: $stackTrace');
+              setState(() {
+                _isLoading = false;
+                _errorMessage = 'Lỗi khi lưu license: ${e.toString()}';
+              });
+            }
+          } else {
+            print('❌ Step 2 failed: Unexpected status=$status (expected "activated" or "active")');
             setState(() {
-              _errorMessage = 'Lỗi khi lưu license: ${e.toString()}';
+              _isLoading = false;
+              _errorMessage = 'Kích hoạt dùng thử thất bại. Status: $status';
             });
           }
         } else {
-          print('❌ Step 2 failed: activationResult=${activationResult != null ? activationResult['status'] : 'null'}');
+          print('❌ Step 2 failed: activationResult is null');
           setState(() {
             _isLoading = false;
-            _errorMessage = 'Kích hoạt dùng thử thất bại. Vui lòng thử lại.';
+            _errorMessage = 'Kích hoạt dùng thử thất bại. Không nhận được response từ server.';
           });
         }
       } else {
