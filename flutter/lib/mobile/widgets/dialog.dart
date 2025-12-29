@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common/widgets/setting_widgets.dart';
 import 'package:flutter_hbb/common/widgets/toolbar.dart';
 import 'package:get/get.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../common.dart';
 import '../../models/platform_model.dart';
@@ -164,6 +165,29 @@ void showServerSettingsWithValue(
     OverlayDialogManager dialogManager,
     void Function(VoidCallback)? upSetState) async {
   var isInProgress = false;
+  
+  // Check if license is active - if so, load from license and disable editing
+  bool isLicenseActive = false;
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    isLicenseActive = prefs.getBool('afk_license_active') ?? false;
+    
+    if (isLicenseActive) {
+      // Load server config from license
+      final idServer = prefs.getString('id_server') ?? '';
+      final relayServer = prefs.getString('relay_server') ?? '';
+      final apiServer = prefs.getString('api_server') ?? '';
+      final publicKey = prefs.getString('public_key') ?? '';
+      
+      if (idServer.isNotEmpty) serverConfig.idServer = idServer;
+      if (relayServer.isNotEmpty) serverConfig.relayServer = relayServer;
+      if (apiServer.isNotEmpty) serverConfig.apiServer = apiServer;
+      if (publicKey.isNotEmpty) serverConfig.key = publicKey;
+    }
+  } catch (e) {
+    print('Error loading license server config: $e');
+  }
+  
   final idCtrl = TextEditingController(text: serverConfig.idServer);
   final relayCtrl = TextEditingController(text: serverConfig.relayServer);
   final apiCtrl = TextEditingController(text: serverConfig.apiServer);
@@ -201,7 +225,7 @@ void showServerSettingsWithValue(
 
     Widget buildField(
         String label, TextEditingController controller, String errorMsg,
-        {String? Function(String?)? validator, bool autofocus = false}) {
+        {String? Function(String?)? validator, bool autofocus = false, bool enabled = true}) {
       if (isDesktop || isWeb) {
         return Row(
           children: [
@@ -213,10 +237,13 @@ void showServerSettingsWithValue(
             Expanded(
               child: TextFormField(
                 controller: controller,
+                enabled: enabled,
                 decoration: InputDecoration(
                   errorText: errorMsg.isEmpty ? null : errorMsg,
                   contentPadding:
                       EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                  filled: !enabled,
+                  fillColor: !enabled ? Colors.grey[200] : null,
                 ),
                 validator: validator,
                 autofocus: autofocus,
@@ -228,9 +255,12 @@ void showServerSettingsWithValue(
 
       return TextFormField(
         controller: controller,
+        enabled: enabled,
         decoration: InputDecoration(
           labelText: label,
           errorText: errorMsg.isEmpty ? null : errorMsg,
+          filled: !enabled,
+          fillColor: !enabled ? Colors.grey[200] : null,
         ),
         validator: validator,
       ).workaroundFreezeLinuxMint();
@@ -249,18 +279,36 @@ void showServerSettingsWithValue(
           child: Obx(() => Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (isLicenseActive) ...[
+                    Padding(
+                      padding: EdgeInsets.only(bottom: 8),
+                      child: Row(
+                        children: [
+                          Icon(Icons.info_outline, color: Colors.blue, size: 16),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Cấu hình server được tự động điền từ license. Không thể chỉnh sửa.',
+                              style: TextStyle(fontSize: 12, color: Colors.blue[700]),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   buildField(translate('ID Server'), idCtrl, idServerMsg.value,
-                      autofocus: true),
+                      autofocus: !isLicenseActive, enabled: !isLicenseActive),
                   SizedBox(height: 8),
                   if (!isIOS && !isWeb) ...[
                     buildField(translate('Relay Server'), relayCtrl,
-                        relayServerMsg.value),
+                        relayServerMsg.value, enabled: !isLicenseActive),
                     SizedBox(height: 8),
                   ],
                   buildField(
                     translate('API Server'),
                     apiCtrl,
                     apiServerMsg.value,
+                    enabled: !isLicenseActive,
                     validator: (v) {
                       if (v != null && v.isNotEmpty) {
                         if (!(v.startsWith('http://') ||
@@ -272,7 +320,7 @@ void showServerSettingsWithValue(
                     },
                   ),
                   SizedBox(height: 8),
-                  buildField('Key', keyCtrl, ''),
+                  buildField('Key', keyCtrl, '', enabled: !isLicenseActive),
                   if (isInProgress)
                     Padding(
                       padding: EdgeInsets.only(top: 8),

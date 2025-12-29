@@ -350,7 +350,7 @@ class ScamWarningDialogState extends State<ScamWarningDialog> {
                 ),
                 SizedBox(height: 18),
                 Text(
-                  translate("scam_title"),
+                  "Bạn có thể đang bị LỪA ĐẢO!",
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.white,
@@ -360,7 +360,7 @@ class ScamWarningDialogState extends State<ScamWarningDialog> {
                 ),
                 SizedBox(height: 18),
                 Text(
-                  "${translate("scam_text1")}\n\n${translate("scam_text2")}\n",
+                  "Nếu bạn đang nói chuyện với người KHÔNG quen biết và TIN TƯỞNG, người đó yêu cầu bạn sử dụng AFK Zone và bật dịch vụ, đừng tiếp tục và cúp máy ngay lập tức.\n\nHọ có thể là kẻ lừa đảo đang cố gắng đánh cắp tiền hoặc thông tin cá nhân của bạn.",
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.bold,

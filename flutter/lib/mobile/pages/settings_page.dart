@@ -14,8 +14,11 @@ import 'package:url_launcher/url_launcher_string.dart';
 import '../../common.dart';
 import '../../common/widgets/dialog.dart';
 import '../../common/widgets/login.dart';
+import '../../common/license_service.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/services.dart';
 import '../widgets/dialog.dart';
 import 'home_page.dart';
 import 'scan_page.dart';
@@ -96,6 +99,10 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   var _enableIpv6Punch = false;
   var _isUsingPublicServer = false;
   var _allowAskForNoteAtEndOfConnection = false;
+  String? _licenseKey;
+  String? _licenseTier;
+  String? _licenseExpiresAt;
+  bool _licenseLoading = true;
 
   _SettingsState() {
     _enableAbr = option2bool(
@@ -141,6 +148,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    _loadLicenseInfo();
     WidgetsBinding.instance.addObserver(this);
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -258,6 +266,41 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
       return true;
     } else {
       return false;
+    }
+  }
+
+  Future<void> _loadLicenseInfo() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final licenseKey = prefs.getString('license_key');
+      final expiresAt = prefs.getInt('afk_license_expires_at');
+      
+      if (licenseKey != null) {
+        // Get license details from check API
+        final deviceId = await LicenseService.getDeviceFingerprint();
+        final result = await LicenseService.checkLicense(licenseKey, deviceId);
+        
+        setState(() {
+          _licenseKey = licenseKey;
+          if (result != null) {
+            _licenseTier = result['tier']?.toString();
+            if (expiresAt != null) {
+              final date = DateTime.fromMillisecondsSinceEpoch(expiresAt);
+              _licenseExpiresAt = '${date.day}/${date.month}/${date.year}';
+            }
+          }
+          _licenseLoading = false;
+        });
+      } else {
+        setState(() {
+          _licenseLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading license info: $e');
+      setState(() {
+        _licenseLoading = false;
+      });
     }
   }
 
@@ -655,25 +698,53 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
     final settings = SettingsList(
       sections: [
         customClientSection,
-        if (!bind.isDisableAccount())
-          SettingsSection(
-            title: Text(translate('Account')),
-            tiles: [
+        // License Info Section (replaces Account/Login)
+        SettingsSection(
+          title: Text('Thông tin License'),
+          tiles: [
+            if (_licenseLoading)
               SettingsTile(
-                title: Obx(() => Text(gFFI.userModel.userName.value.isEmpty
-                    ? translate('Login')
-                    : '${translate('Logout')} (${gFFI.userModel.userName.value})')),
-                leading: Icon(Icons.person),
-                onPressed: (context) {
-                  if (gFFI.userModel.userName.value.isEmpty) {
-                    loginDialog();
-                  } else {
-                    logOutConfirmDialog();
-                  }
-                },
+                title: Text('Đang tải...'),
+                leading: CircularProgressIndicator(),
+              )
+            else if (_licenseKey != null)
+              SettingsTile(
+                title: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('License Key:', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                    SizedBox(height: 4),
+                    SelectableText(_licenseKey!, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                    if (_licenseTier != null) ...[
+                      SizedBox(height: 8),
+                      Text('Gói: ${_licenseTier!.toUpperCase()}', style: TextStyle(fontSize: 12)),
+                    ],
+                    if (_licenseExpiresAt != null) ...[
+                      SizedBox(height: 4),
+                      Text('Hết hạn: $_licenseExpiresAt', style: TextStyle(fontSize: 12)),
+                    ],
+                  ],
+                ),
+                leading: Icon(Icons.vpn_key),
+                trailing: IconButton(
+                  icon: Icon(Icons.copy),
+                  onPressed: () async {
+                    if (_licenseKey != null) {
+                      await Clipboard.setData(ClipboardData(text: _licenseKey!));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Đã copy license key')),
+                      );
+                    }
+                  },
+                ),
+              )
+            else
+              SettingsTile(
+                title: Text('Chưa có license'),
+                leading: Icon(Icons.warning),
               ),
-            ],
-          ),
+          ],
+        ),
         SettingsSection(title: Text(translate("Settings")), tiles: [
           if (!_hideNetwork && !_hideProxy)
             SettingsTile(

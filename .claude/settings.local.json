@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ssh:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git tag:*)",
+      "Bash(curl:*)",
+      "Bash(nslookup:*)",
+      "Bash(host:*)",
+      "Bash(scp:*)",
+      "Bash(\"D:\\rustdesk-dev\\app.py.original\")",
+      "Bash(cat:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
