@@ -91,31 +91,40 @@ class _LicensePageState extends State<LicensePage> {
             // Add license_key to result so callback can save it
             activationResult['license_key'] = licenseKey;
             print('✅ Step 3: Calling onLicenseActivated callback with: ${activationResult.keys}');
-            setState(() => _isLoading = false);
             try {
               await widget.onLicenseActivated(activationResult);
               print('✅ Step 3: Callback completed successfully');
+              // Only set loading to false after successful callback
+              if (mounted) {
+                setState(() => _isLoading = false);
+              }
             } catch (e, stackTrace) {
               print('❌ Step 3: Callback error: $e');
               print('Stack trace: $stackTrace');
-              setState(() {
-                _isLoading = false;
-                _errorMessage = 'Lỗi khi lưu license: ${e.toString()}';
-              });
+              if (mounted) {
+                setState(() {
+                  _isLoading = false;
+                  _errorMessage = 'Lỗi khi lưu license: ${e.toString()}';
+                });
+              }
             }
           } else {
             print('❌ Step 2 failed: Unexpected status=$status (expected "activated" or "active")');
-            setState(() {
-              _isLoading = false;
-              _errorMessage = 'Kích hoạt dùng thử thất bại. Status: $status';
-            });
+            if (mounted) {
+              setState(() {
+                _isLoading = false;
+                _errorMessage = 'Kích hoạt dùng thử thất bại. Status: $status';
+              });
+            }
           }
         } else {
           print('❌ Step 2 failed: activationResult is null');
-          setState(() {
-            _isLoading = false;
-            _errorMessage = 'Kích hoạt dùng thử thất bại. Không nhận được response từ server.';
-          });
+          if (mounted) {
+            setState(() {
+              _isLoading = false;
+              _errorMessage = 'Kích hoạt dùng thử thất bại. Không nhận được response từ server.';
+            });
+          }
         }
       } else {
         print('❌ Step 1 failed: result is null or no license_key');
