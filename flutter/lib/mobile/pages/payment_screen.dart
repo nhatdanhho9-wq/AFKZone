@@ -24,16 +24,28 @@ class _PaymentScreenState extends State<PaymentScreen> {
     _loadProducts();
   }
 
-  Future<void> _loadProducts() async {
+  Future<void> _loadProducts({bool showLoading = true}) async {
+    if (showLoading) {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+    }
+    
     try {
+      print('🔄 PaymentScreen: Loading products from API...');
       final products = await ProductService.fetchProductsByTier();
+      print('✅ PaymentScreen: Loaded ${products.length} tiers');
+      
       setState(() {
         _productsByTier = products;
         _isLoading = false;
+        _error = null;
       });
     } catch (e) {
+      print('❌ PaymentScreen: Error loading products: $e');
       setState(() {
-        _error = 'Khong the tai danh sach goi';
+        _error = 'Không thể tải danh sách gói. Vui lòng thử lại.';
         _isLoading = false;
       });
     }
@@ -46,6 +58,12 @@ class _PaymentScreenState extends State<PaymentScreen> {
         title: Text('Mua License AFK Zone'),
         backgroundColor: Colors.deepPurple,
         actions: [
+          // Refresh button
+          IconButton(
+            icon: Icon(Icons.refresh),
+            onPressed: () => _loadProducts(),
+            tooltip: 'Làm mới giá',
+          ),
           Consumer<CartService>(
             builder: (context, cart, child) {
               return Stack(
@@ -99,13 +117,20 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   ),
                 )
               : RefreshIndicator(
-                  onRefresh: _loadProducts,
+                  onRefresh: () => _loadProducts(showLoading: false),
                   child: ListView(
                     padding: EdgeInsets.all(16),
                     children: [
-                      Text('Chon goi license', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                      Text('Chọn gói license', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
                       SizedBox(height: 8),
-                      Text('Keo xuong de lam moi gia', style: TextStyle(fontSize: 12, color: Colors.grey), textAlign: TextAlign.center),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.info_outline, size: 14, color: Colors.grey),
+                          SizedBox(width: 4),
+                          Text('Kéo xuống hoặc nhấn nút refresh để làm mới giá', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                        ],
+                      ),
                       SizedBox(height: 24),
                       if (_productsByTier['basic']?.isNotEmpty ?? false)
                         _buildTierSection('Basic', Colors.blue, _productsByTier['basic']!),
