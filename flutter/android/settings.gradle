@@ -13,6 +13,8 @@ pluginManagement {
         google()
         mavenCentral()
         gradlePluginPortal()
+        // Fallback repositories for better reliability
+        maven { url 'https://repo1.maven.org/maven2' }
     }
 }
 
