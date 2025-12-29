@@ -54,23 +54,27 @@ class LicenseService {
   static Future<Map<String, dynamic>?> generateTrial() async {
     try {
       final fingerprint = await getDeviceFingerprint();
+      print('🔄 generateTrial: deviceFingerprint=$fingerprint');
       final response = await http.post(
         Uri.parse('$API_URL/trial/generate'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({'device_fingerprint': fingerprint}),
       ).timeout(Duration(seconds: 10));
 
+      print('🔄 generateTrial: statusCode=${response.statusCode}, body=${response.body}');
+
       if (response.statusCode == 200) {
         final result = json.decode(response.body);
         print('✅ Generate trial API response: $result');
+        print('✅ Generate trial - license_key: ${result['license_key']}');
         return result;
       } else {
         final error = json.decode(response.body);
-        print('❌ Generate trial API error: ${error['detail']}');
+        print('❌ Generate trial API error: status=${response.statusCode}, detail=${error['detail']}');
         throw Exception(error['detail'] ?? 'Failed to generate trial');
       }
     } catch (e) {
-      print('Error generating trial: $e');
+      print('❌ Error generating trial: $e');
       rethrow;
     }
   }
