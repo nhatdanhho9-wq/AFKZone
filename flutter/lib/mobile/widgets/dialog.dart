@@ -150,17 +150,8 @@ void setTemporaryPasswordLengthDialog(
 
 void showServerSettings(OverlayDialogManager dialogManager,
     void Function(VoidCallback) setState) async {
-  // Hide dialog if license is active (server configs are auto-applied)
-  try {
-    final prefs = await SharedPreferences.getInstance();
-    final isLicenseActive = prefs.getBool('afk_license_active') ?? false;
-    if (isLicenseActive) {
-      showToast('Cấu hình server được tự động điền từ license. Không cần chỉnh sửa.');
-      return;
-    }
-  } catch (e) {
-    print('Error checking license: $e');
-  }
+  // Allow dialog to show - user can configure manually for testing
+  // Server configs from license will be auto-filled but editable
   
   Map<String, dynamic> options = {};
   try {
@@ -302,7 +293,7 @@ void showServerSettingsWithValue(
                           SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              'Cấu hình server được tự động điền từ license. Không thể chỉnh sửa.',
+                              'Cấu hình server được tự động điền từ license. Bạn có thể chỉnh sửa để test.',
                               style: TextStyle(fontSize: 12, color: Colors.blue[700]),
                             ),
                           ),
@@ -311,19 +302,17 @@ void showServerSettingsWithValue(
                     ),
                   ],
                   buildField(translate('ID Server'), idCtrl, idServerMsg.value,
-                      autofocus: !isLicenseActive, enabled: !isLicenseActive, readOnly: isLicenseActive),
+                      autofocus: !isLicenseActive),
                   SizedBox(height: 8),
                   if (!isIOS && !isWeb) ...[
                     buildField(translate('Relay Server'), relayCtrl,
-                        relayServerMsg.value, enabled: !isLicenseActive, readOnly: isLicenseActive),
+                        relayServerMsg.value),
                     SizedBox(height: 8),
                   ],
                   buildField(
                     translate('API Server'),
                     apiCtrl,
                     apiServerMsg.value,
-                    enabled: !isLicenseActive,
-                    readOnly: isLicenseActive,
                     validator: (v) {
                       if (v != null && v.isNotEmpty) {
                         if (!(v.startsWith('http://') ||
@@ -335,7 +324,7 @@ void showServerSettingsWithValue(
                     },
                   ),
                   SizedBox(height: 8),
-                  buildField('Key', keyCtrl, '', enabled: !isLicenseActive, readOnly: isLicenseActive),
+                  buildField('Key', keyCtrl, ''),
                   if (isInProgress)
                     Padding(
                       padding: EdgeInsets.only(top: 8),
