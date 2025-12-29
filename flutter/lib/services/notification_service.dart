@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import '../models/notification_model.dart';
-import '../../common/license_service.dart';
+import 'package:flutter_hbb/models/notification_model.dart';
+import 'package:flutter_hbb/common/license_service.dart';
 
 class NotificationService {
   static const String API_URL = 'https://api.afkzone.cloud';

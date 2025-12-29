@@ -1,4 +1,4 @@
-import 'product_model.dart';
+import 'package:flutter_hbb/models/product_model.dart';
 
 class CartItem {
   final Product product;

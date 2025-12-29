@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../models/cart_model.dart';
-import '../models/product_model.dart';
+import 'package:flutter_hbb/models/cart_model.dart';
+import 'package:flutter_hbb/models/product_model.dart';
 
 class CartService extends ChangeNotifier {
   static final CartService _instance = CartService._internal();

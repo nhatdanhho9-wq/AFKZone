@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import '../models/product_model.dart';
+import 'package:flutter_hbb/models/product_model.dart';
 
 class ProductService {
   static const String API_URL = 'https://api.afkzone.cloud';
