@@ -225,7 +225,7 @@ void showServerSettingsWithValue(
 
     Widget buildField(
         String label, TextEditingController controller, String errorMsg,
-        {String? Function(String?)? validator, bool autofocus = false, bool enabled = true}) {
+        {String? Function(String?)? validator, bool autofocus = false, bool enabled = true, bool readOnly = false}) {
       if (isDesktop || isWeb) {
         return Row(
           children: [
@@ -237,13 +237,14 @@ void showServerSettingsWithValue(
             Expanded(
               child: TextFormField(
                 controller: controller,
-                enabled: enabled,
+                enabled: enabled && !readOnly,
+                readOnly: readOnly,
                 decoration: InputDecoration(
                   errorText: errorMsg.isEmpty ? null : errorMsg,
                   contentPadding:
                       EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-                  filled: !enabled,
-                  fillColor: !enabled ? Colors.grey[200] : null,
+                  filled: !enabled || readOnly,
+                  fillColor: (!enabled || readOnly) ? Colors.grey[200] : null,
                 ),
                 validator: validator,
                 autofocus: autofocus,
@@ -255,12 +256,13 @@ void showServerSettingsWithValue(
 
       return TextFormField(
         controller: controller,
-        enabled: enabled,
+        enabled: enabled && !readOnly,
+        readOnly: readOnly,
         decoration: InputDecoration(
           labelText: label,
           errorText: errorMsg.isEmpty ? null : errorMsg,
-          filled: !enabled,
-          fillColor: !enabled ? Colors.grey[200] : null,
+          filled: !enabled || readOnly,
+          fillColor: (!enabled || readOnly) ? Colors.grey[200] : null,
         ),
         validator: validator,
       ).workaroundFreezeLinuxMint();

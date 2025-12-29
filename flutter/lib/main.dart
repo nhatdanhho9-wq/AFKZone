@@ -29,6 +29,7 @@ import 'mobile/pages/server_page.dart';
 import 'mobile/pages/license_wrapper.dart';
 import 'models/platform_model.dart';
 import 'services/cart_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:flutter_hbb/plugin/handlers.dart'
     if (dart.library.html) 'package:flutter_hbb/web/plugin/handlers.dart';
@@ -186,8 +187,37 @@ void runMobileApp() async {
   draggablePositions.load();
   await Future.wait([gFFI.abModel.loadCache(), gFFI.groupModel.loadCache()]);
   gFFI.userModel.refreshCurrentUser();
+  
+  // Auto-apply server configs from license if available
+  await _applyLicenseServerConfigs();
+  
   runApp(App());
   await initUniLinks();
+}
+
+Future<void> _applyLicenseServerConfigs() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final isLicenseActive = prefs.getBool('afk_license_active') ?? false;
+    
+    if (isLicenseActive) {
+      final idServer = prefs.getString('id_server') ?? '';
+      final relayServer = prefs.getString('relay_server') ?? '';
+      final apiServer = prefs.getString('api_server') ?? '';
+      final publicKey = prefs.getString('public_key') ?? '';
+      
+      if (idServer.isNotEmpty || relayServer.isNotEmpty || apiServer.isNotEmpty || publicKey.isNotEmpty) {
+        print('🔄 Auto-applying license server configs...');
+        await bind.mainSetOption(key: 'custom-rendezvous-server', value: idServer);
+        await bind.mainSetOption(key: 'relay-server', value: relayServer);
+        await bind.mainSetOption(key: 'api-server', value: apiServer);
+        await bind.mainSetOption(key: 'key', value: publicKey);
+        print('✅ License server configs applied: id=$idServer, relay=$relayServer, api=$apiServer');
+      }
+    }
+  } catch (e) {
+    print('❌ Error applying license server configs: $e');
+  }
 }
 
 void runMultiWindow(
