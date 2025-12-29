@@ -68,7 +68,7 @@ class _LicensePageState extends State<LicensePage> {
   }
 
   Future<void> _activateLicenseKey() async {
-    if (_licenseKeyController.text.isEmpty) {
+    if (_licenseKeyController.text.trim().isEmpty) {
       setState(() => _errorMessage = 'Vui lòng nhập license key');
       return;
     }
@@ -80,23 +80,26 @@ class _LicensePageState extends State<LicensePage> {
 
     try {
       final deviceId = await _getDeviceId();
+      final licenseKey = _licenseKeyController.text.trim();
       final result = await LicenseService.activateLicense(
-        _licenseKeyController.text.trim(),
+        licenseKey,
         deviceId,
       );
 
       if (result != null) {
+        // Add license_key to result so callback can save it
+        result['license_key'] = licenseKey;
         setState(() => _isLoading = false);
         widget.onLicenseActivated(result);
       } else {
         setState(() {
           _isLoading = false;
-          _errorMessage = 'Activation failed';
+          _errorMessage = 'Kích hoạt thất bại. Vui lòng thử lại.';
         });
       }
     } catch (e) {
       setState(() {
-        _errorMessage = e.toString().replaceAll('Exception: ', '');
+        _errorMessage = e.toString().replaceAll('Exception: ', '').replaceAll('Error: ', '');
         _isLoading = false;
       });
     }

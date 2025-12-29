@@ -100,7 +100,7 @@ class _LicenseWrapperState extends State<LicenseWrapper> {
   Future<void> _onLicenseActivated(Map<String, dynamic> result) async {
     final prefs = await SharedPreferences.getInstance();
 
-    // Extract license_key from result
+    // Extract license_key from result (added by license_page.dart)
     String? licenseKey = result['license_key'];
     if (licenseKey == null && result['message'] != null) {
       // From trial response
@@ -108,9 +108,28 @@ class _LicenseWrapperState extends State<LicenseWrapper> {
     }
 
     if (licenseKey != null) {
-      await prefs.setString('license_key', licenseKey);
       final deviceId = await LicenseService.getDeviceFingerprint();
+      
+      await prefs.setString('license_key', licenseKey);
       await prefs.setString('device_id', deviceId);
+      await prefs.setBool('afk_license_active', true);
+      
+      // Save expiration if available
+      if (result['expires_at'] != null) {
+        try {
+          // expires_at might be ISO string or timestamp
+          int expiresAt;
+          if (result['expires_at'] is String) {
+            final dateTime = DateTime.parse(result['expires_at']);
+            expiresAt = dateTime.millisecondsSinceEpoch;
+          } else {
+            expiresAt = result['expires_at'] as int;
+          }
+          await prefs.setInt('afk_license_expires_at', expiresAt);
+        } catch (e) {
+          print('Error parsing expires_at: $e');
+        }
+      }
 
       setState(() {
         _licenseKey = licenseKey;
@@ -120,6 +139,8 @@ class _LicenseWrapperState extends State<LicenseWrapper> {
       });
 
       await _updateServerConfigs(result);
+    } else {
+      print('Warning: license_key not found in activation result');
     }
   }
 
