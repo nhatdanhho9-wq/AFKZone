@@ -7,7 +7,7 @@ import 'payment_screen.dart';
 import 'dart:io';
 
 class LicensePage extends StatefulWidget {
-  final Function(Map<String, dynamic>) onLicenseActivated;
+  final Future<void> Function(Map<String, dynamic>) onLicenseActivated;
 
   const LicensePage({Key? key, required this.onLicenseActivated}) : super(key: key);
 
@@ -87,8 +87,16 @@ class _LicensePageState extends State<LicensePage> {
           activationResult['license_key'] = licenseKey;
           print('✅ Step 3: Calling onLicenseActivated callback...');
           setState(() => _isLoading = false);
-          widget.onLicenseActivated(activationResult);
-          print('✅ Step 3: Callback completed');
+          try {
+            await widget.onLicenseActivated(activationResult);
+            print('✅ Step 3: Callback completed successfully');
+          } catch (e, stackTrace) {
+            print('❌ Step 3: Callback error: $e');
+            print('Stack trace: $stackTrace');
+            setState(() {
+              _errorMessage = 'Lỗi khi lưu license: ${e.toString()}';
+            });
+          }
         } else {
           print('❌ Step 2 failed: activationResult=${activationResult != null ? activationResult['status'] : 'null'}');
           setState(() {
