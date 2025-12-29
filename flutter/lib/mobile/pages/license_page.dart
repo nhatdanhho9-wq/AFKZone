@@ -207,6 +207,7 @@ class _LicensePageState extends State<LicensePage> {
                                 'KÍCH HOẠT',
                                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                               ),
+                      ),
 
                       SizedBox(height: 12),
 
