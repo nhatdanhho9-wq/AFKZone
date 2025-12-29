@@ -82,7 +82,7 @@ class _LicensePageState extends State<LicensePage> {
         );
         print('✅ Step 2 result: $activationResult');
 
-        if (activationResult != null && activationResult['status'] == 'activated') {
+        if (activationResult != null && (activationResult['status'] == 'activated' || activationResult['status'] == 'active')) {
           // Add license_key to result so callback can save it
           activationResult['license_key'] = licenseKey;
           print('✅ Step 3: Calling onLicenseActivated callback...');
@@ -90,7 +90,7 @@ class _LicensePageState extends State<LicensePage> {
           widget.onLicenseActivated(activationResult);
           print('✅ Step 3: Callback completed');
         } else {
-          print('❌ Step 2 failed: activationResult is null or status != activated');
+          print('❌ Step 2 failed: activationResult=${activationResult != null ? activationResult['status'] : 'null'}');
           setState(() {
             _isLoading = false;
             _errorMessage = 'Kích hoạt dùng thử thất bại. Vui lòng thử lại.';
