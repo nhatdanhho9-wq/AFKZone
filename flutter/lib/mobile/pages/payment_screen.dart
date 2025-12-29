@@ -133,7 +133,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 SizedBox(width: 8),
                 Text(name, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
                 Spacer(),
-                Text('${products.first.maxDevices} thiet bi', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                Text(products.first.maxDevicesDisplay, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
               ],
             ),
             if (products.first.description != null) ...[

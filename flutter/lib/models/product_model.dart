@@ -4,7 +4,9 @@ class Product {
   final String tier;
   final int durationDays;
   final int price;
+  final String displayPrice;  // NEW: from API
   final int maxDevices;
+  final String maxDevicesDisplay;  // NEW: from API
   final bool isActive;
   final int displayOrder;
   final String? description;
@@ -15,7 +17,9 @@ class Product {
     required this.tier,
     required this.durationDays,
     required this.price,
+    required this.displayPrice,
     required this.maxDevices,
+    required this.maxDevicesDisplay,
     required this.isActive,
     required this.displayOrder,
     this.description,
@@ -28,26 +32,17 @@ class Product {
       tier: json['tier'],
       durationDays: json['duration_days'],
       price: json['price'],
+      displayPrice: json['display_price'],  // NEW
       maxDevices: json['max_devices'],
+      maxDevicesDisplay: json['max_devices_display'],  // NEW
       isActive: json['is_active'],
       displayOrder: json['display_order'],
       description: json['description'],
     );
   }
 
-  String get formattedPrice {
-    // Show "Miễn phí" for 7-day products
-    if (durationDays == 7 && price <= 1000) {
-      return 'Miễn phí';
-    }
-
-    if (price >= 1000000) {
-      return '${(price / 1000000).toStringAsFixed(1)}M';
-    } else if (price >= 1000) {
-      return '${(price / 1000).toStringAsFixed(0)}.000d';
-    }
-    return '${price}d';
-  }
+  // Simple accessor - all formatting done by API
+  String get formattedPrice => displayPrice;
 
   String get tierDisplayName {
     switch (tier) {
