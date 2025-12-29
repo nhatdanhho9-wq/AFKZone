@@ -66,34 +66,46 @@ class _LicensePageState extends State<LicensePage> {
     });
 
     try {
+      print('🔄 Step 1: Generating trial...');
       final result = await LicenseService.generateTrial();
+      print('✅ Step 1 result: $result');
+      
       if (result != null && result['license_key'] != null) {
         // Auto-activate with returned license key
         final deviceId = await _getDeviceId();
         final licenseKey = result['license_key'];
+        print('🔄 Step 2: Activating license $licenseKey with device $deviceId...');
+        
         final activationResult = await LicenseService.activateLicense(
           licenseKey,
           deviceId,
         );
+        print('✅ Step 2 result: $activationResult');
 
-        if (activationResult != null) {
+        if (activationResult != null && activationResult['status'] == 'activated') {
           // Add license_key to result so callback can save it
           activationResult['license_key'] = licenseKey;
+          print('✅ Step 3: Calling onLicenseActivated callback...');
           setState(() => _isLoading = false);
           widget.onLicenseActivated(activationResult);
+          print('✅ Step 3: Callback completed');
         } else {
+          print('❌ Step 2 failed: activationResult is null or status != activated');
           setState(() {
             _isLoading = false;
             _errorMessage = 'Kích hoạt dùng thử thất bại. Vui lòng thử lại.';
           });
         }
       } else {
+        print('❌ Step 1 failed: result is null or no license_key');
         setState(() {
           _isLoading = false;
           _errorMessage = 'Không thể tạo license dùng thử. Vui lòng thử lại.';
         });
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      print('❌ Error in _activateTrial: $e');
+      print('Stack trace: $stackTrace');
       setState(() {
         _errorMessage = e.toString().replaceAll('Exception: ', '').replaceAll('Error: ', '');
         _isLoading = false;

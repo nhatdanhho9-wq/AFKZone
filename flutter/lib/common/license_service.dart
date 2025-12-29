@@ -61,9 +61,12 @@ class LicenseService {
       ).timeout(Duration(seconds: 10));
 
       if (response.statusCode == 200) {
-        return json.decode(response.body);
+        final result = json.decode(response.body);
+        print('✅ Generate trial API response: $result');
+        return result;
       } else {
         final error = json.decode(response.body);
+        print('❌ Generate trial API error: ${error['detail']}');
         throw Exception(error['detail'] ?? 'Failed to generate trial');
       }
     } catch (e) {
@@ -85,9 +88,12 @@ class LicenseService {
       ).timeout(Duration(seconds: 10));
 
       if (response.statusCode == 200) {
-        return json.decode(response.body);
+        final result = json.decode(response.body);
+        print('✅ Activate API response: $result');
+        return result;
       } else {
         final error = json.decode(response.body);
+        print('❌ Activate API error: ${error['detail']}');
         throw Exception(error['detail'] ?? 'Activation failed');
       }
     } catch (e) {
