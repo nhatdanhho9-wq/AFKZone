@@ -188,8 +188,8 @@ void runMobileApp() async {
   await Future.wait([gFFI.abModel.loadCache(), gFFI.groupModel.loadCache()]);
   gFFI.userModel.refreshCurrentUser();
   
-  // DISABLED: Auto-apply server configs - let user configure manually for testing
-  // await _applyLicenseServerConfigs();
+  // Auto-apply server configs from license
+  await _applyLicenseServerConfigs();
   
   runApp(App());
   await initUniLinks();
