@@ -332,7 +332,7 @@ class ScamWarningDialogState extends State<ScamWarningDialog> {
                     ),
                     SizedBox(width: 10),
                     Text(
-                      translate("Warning"),
+                      "Cảnh báo",
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -378,7 +378,7 @@ class ScamWarningDialogState extends State<ScamWarningDialog> {
                       },
                     ),
                     Text(
-                      translate("Don't show again"),
+                      "Không hiển thị lại",
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -408,8 +408,8 @@ class ScamWarningDialogState extends State<ScamWarningDialog> {
                         ),
                         child: Text(
                           isButtonLocked
-                              ? "${translate("I Agree")} (${_countdown}s)"
-                              : translate("I Agree"),
+                              ? "Đồng ý (${_countdown}s)"
+                              : "Đồng ý",
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 13.0,
@@ -430,7 +430,7 @@ class ScamWarningDialogState extends State<ScamWarningDialog> {
                           backgroundColor: Colors.blueAccent,
                         ),
                         child: Text(
-                          translate("Decline"),
+                          "Từ chối",
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 13.0,
