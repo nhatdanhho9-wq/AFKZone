@@ -1073,7 +1073,12 @@
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${authToken}`
                     },
-                    body: JSON.stringify({tier, duration_days, max_devices, notes})
+                    body: JSON.stringify({
+                        tier: tier,
+                        duration_days: duration_days,
+                        max_devices: max_devices,
+                        notes: notes || null
+                    })
                 });
 
                 if (res.ok) {

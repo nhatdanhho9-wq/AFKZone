@@ -287,17 +287,35 @@ void showServerSettingsWithValue(
                   if (isLicenseActive) ...[
                     Padding(
                       padding: EdgeInsets.only(bottom: 8),
-                      child: Row(
-                        children: [
-                          Icon(Icons.info_outline, color: Colors.blue, size: 16),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Cấu hình server được tự động điền từ license. Bạn có thể chỉnh sửa để test.',
-                              style: TextStyle(fontSize: 12, color: Colors.blue[700]),
+                      child: Container(
+                        padding: EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.blue.shade200),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.info_outline, color: Colors.blue, size: 20),
+                            SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Cấu hình server từ license đã được tự động áp dụng',
+                                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.blue[900]),
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    'Các giá trị bên dưới được điền tự động từ license. Bạn có thể xem và chỉnh sửa nếu cần.',
+                                    style: TextStyle(fontSize: 12, color: Colors.blue[700]),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ],
