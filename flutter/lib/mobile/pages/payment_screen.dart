@@ -133,20 +133,23 @@ class _PaymentScreenState extends State<PaymentScreen> {
                       ),
                       SizedBox(height: 24),
                       if (_productsByTier['basic']?.isNotEmpty ?? false)
-                        _buildTierSection('Basic', Colors.blue, _productsByTier['basic']!),
+                        _buildTierSection(_productsByTier['basic']!.first, Colors.blue, _productsByTier['basic']!),
                       SizedBox(height: 16),
                       if (_productsByTier['pro']?.isNotEmpty ?? false)
-                        _buildTierSection('Pro', Colors.purple, _productsByTier['pro']!),
+                        _buildTierSection(_productsByTier['pro']!.first, Colors.purple, _productsByTier['pro']!),
                       SizedBox(height: 16),
                       if (_productsByTier['enterprise']?.isNotEmpty ?? false)
-                        _buildTierSection('Enterprise', Colors.orange, _productsByTier['enterprise']!),
+                        _buildTierSection(_productsByTier['enterprise']!.first, Colors.orange, _productsByTier['enterprise']!),
                     ],
                   ),
                 ),
     );
   }
 
-  Widget _buildTierSection(String name, Color color, List<Product> products) {
+  Widget _buildTierSection(Product firstProduct, Color color, List<Product> products) {
+    // Use product name from API, fallback to tier if name is empty
+    final tierName = firstProduct.name.isNotEmpty ? firstProduct.name : firstProduct.tierDisplayName;
+    
     return Card(
       elevation: 4,
       child: Padding(
@@ -158,9 +161,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
               children: [
                 Icon(Icons.star, color: color),
                 SizedBox(width: 8),
-                Text(name, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
+                Text(tierName, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
                 Spacer(),
-                Text(products.first.maxDevicesDisplay, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                Text(firstProduct.maxDevicesDisplay, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
               ],
             ),
             if (products.first.description != null) ...[
@@ -209,7 +212,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('${product.durationDays} ngay', style: TextStyle(fontSize: 18, color: Colors.white)),
+                      Text('${product.durationDays} ngày', style: TextStyle(fontSize: 18, color: Colors.white)),
                       Text(product.formattedPrice, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
                     ],
                   ),

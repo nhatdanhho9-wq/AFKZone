@@ -147,7 +147,7 @@ class _LicenseInfoPageState extends State<LicenseInfoPage> {
               itemBuilder: (context, index) {
                 final product = sameTierProducts[index];
                 return ListTile(
-                  title: Text('${product.durationDays} ngay'),
+                  title: Text('${product.durationDays} ngày'),
                   trailing: Text(product.formattedPrice),
                   onTap: () {
                     Navigator.pop(context);

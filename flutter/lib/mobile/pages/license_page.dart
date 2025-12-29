@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common/license_service.dart';
+import 'package:flutter_hbb/services/product_service.dart';
+import 'package:flutter_hbb/models/product_model.dart';
 import 'payment_screen.dart';
 import 'dart:io';
 
@@ -19,11 +21,29 @@ class _LicensePageState extends State<LicensePage> {
   String? _errorMessage;
   bool _hasTrialed = false;
   bool _trialLoading = true;
+  List<Product> _products = [];
+  bool _productsLoading = true;
 
   @override
   void initState() {
     super.initState();
     _checkTrial();
+    _loadProducts();
+  }
+
+  Future<void> _loadProducts() async {
+    try {
+      final products = await ProductService.fetchProducts();
+      setState(() {
+        _products = products;
+        _productsLoading = false;
+      });
+    } catch (e) {
+      print('Error loading products for pricing: $e');
+      setState(() {
+        _productsLoading = false;
+      });
+    }
   }
 
   Future<void> _checkTrial() async {
@@ -279,7 +299,7 @@ class _LicensePageState extends State<LicensePage> {
                           ),
                           SizedBox(height: 4),
                           Text(
-                            'Basic - Tối đa 1 thiết bị',
+                            _getTrialDisplayText(),
                             style: TextStyle(
                               fontSize: 14,
                               color: Colors.white70,
@@ -369,7 +389,7 @@ class _LicensePageState extends State<LicensePage> {
 
               SizedBox(height: 16),
 
-              // Pricing Info
+              // Pricing Info - Load from API
               Card(
                 elevation: 2,
                 shape: RoundedRectangleBorder(
@@ -388,9 +408,12 @@ class _LicensePageState extends State<LicensePage> {
                         ),
                       ),
                       SizedBox(height: 12),
-                      _buildPricingRow('Basic (2 thiết bị)', '30 ngày: 50.000đ'),
-                      _buildPricingRow('Pro (5 thiết bị)', '30 ngày: 100.000đ'),
-                      _buildPricingRow('Enterprise (∞)', '30 ngày: 200.000đ'),
+                      if (_productsLoading)
+                        Center(child: CircularProgressIndicator())
+                      else if (_products.isEmpty)
+                        Text('Không có thông tin giá', style: TextStyle(color: Colors.grey))
+                      else
+                        ..._buildPricingRowsFromAPI(),
                     ],
                   ),
                 ),
@@ -427,16 +450,56 @@ class _LicensePageState extends State<LicensePage> {
     );
   }
 
+  String _getTrialDisplayText() {
+    // Try to get trial product info from API
+    if (_products.isNotEmpty) {
+      final trialProduct = _products.firstWhere(
+        (p) => p.price == 0 && p.durationDays == 7 && p.tier == 'basic',
+        orElse: () => _products.firstWhere(
+          (p) => p.tier == 'basic',
+          orElse: () => _products.first,
+        ),
+      );
+      final tierName = trialProduct.name.isNotEmpty ? trialProduct.name : 'Basic';
+      return '$tierName - ${trialProduct.maxDevicesDisplay}';
+    }
+    return 'Basic - Tối đa 1 thiết bị'; // Fallback
+  }
+
+  List<Widget> _buildPricingRowsFromAPI() {
+    // Group products by tier and show one product per tier (prefer 30 days)
+    final Map<String, Product> tierProducts = {};
+    
+    for (var product in _products) {
+      if (!tierProducts.containsKey(product.tier)) {
+        tierProducts[product.tier] = product;
+      } else {
+        // Prefer 30 days, then any other duration
+        final current = tierProducts[product.tier]!;
+        if (current.durationDays != 30 && product.durationDays == 30) {
+          tierProducts[product.tier] = product;
+        }
+      }
+    }
+
+    return tierProducts.values.map((product) {
+      final tierName = product.name.isNotEmpty ? product.name : product.tierDisplayName;
+      final tierLabel = '$tierName (${product.maxDevicesDisplay})';
+      final priceLabel = '${product.durationDays} ngày: ${product.displayPrice}';
+      return _buildPricingRow(tierLabel, priceLabel);
+    }).toList();
+  }
+
   Widget _buildPricingRow(String tier, String price) {
     return Padding(
       padding: EdgeInsets.symmetric(vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(tier),
+          Expanded(child: Text(tier, style: TextStyle(fontSize: 14))),
           Text(
             price,
-            style: TextStyle(fontWeight: FontWeight.bold),
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
           ),
         ],
       ),

@@ -44,17 +44,7 @@ class Product {
   // Simple accessor - all formatting done by API
   String get formattedPrice => displayPrice;
 
-  String get tierDisplayName {
-    switch (tier) {
-      case 'basic':
-        return 'Basic';
-      case 'pro':
-        return 'Pro';
-      case 'enterprise':
-        return 'Enterprise';
-      default:
-        return tier;
-    }
-  }
+  // Use name from API instead of hardcoded tier names
+  String get tierDisplayName => name.isNotEmpty ? name : tier.toUpperCase();
 }
 

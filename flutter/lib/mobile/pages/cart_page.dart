@@ -75,7 +75,7 @@ class CartPage extends StatelessWidget {
                 children: [
                   Text(item.product.name, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   SizedBox(height: 4),
-                  Text('${item.product.tierDisplayName} - ${item.product.durationDays} ngay', 
+                  Text('${item.product.tierDisplayName} - ${item.product.durationDays} ngày', 
                     style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                   SizedBox(height: 4),
                   Text(item.product.formattedPrice, 
