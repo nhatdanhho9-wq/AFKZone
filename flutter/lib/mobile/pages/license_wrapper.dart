@@ -10,10 +10,10 @@ class LicenseWrapper extends StatefulWidget {
   const LicenseWrapper({Key? key, required this.child}) : super(key: key);
 
   @override
-  _LicenseWrapperState createState() => _LicenseWrapperState();
+  LicenseWrapperState createState() => LicenseWrapperState();
 }
 
-class _LicenseWrapperState extends State<LicenseWrapper> {
+class LicenseWrapperState extends State<LicenseWrapper> {
   bool _isChecking = true;
   bool _hasValidLicense = false;
   String? _licenseKey;
@@ -97,7 +97,7 @@ class _LicenseWrapperState extends State<LicenseWrapper> {
     await prefs.setString('api_server', config['api_server'] ?? '');
   }
 
-  Future<void> _onLicenseActivated(Map<String, dynamic> result) async {
+  Future<void> onLicenseActivated(Map<String, dynamic> result) async {
     final prefs = await SharedPreferences.getInstance();
 
     // Extract license_key from result (added by license_page.dart)
@@ -173,7 +173,7 @@ class _LicenseWrapperState extends State<LicenseWrapper> {
     }
 
     if (!_hasValidLicense) {
-      return afk.LicensePage(onLicenseActivated: _onLicenseActivated);
+      return afk.LicensePage(onLicenseActivated: onLicenseActivated);
     }
 
     return widget.child;

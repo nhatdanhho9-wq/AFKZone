@@ -332,7 +332,7 @@ class ScamWarningDialogState extends State<ScamWarningDialog> {
                     ),
                     SizedBox(width: 10),
                     Text(
-                      "Cảnh báo",
+                      translate("Warning"),
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -350,7 +350,7 @@ class ScamWarningDialogState extends State<ScamWarningDialog> {
                 ),
                 SizedBox(height: 18),
                 Text(
-                  "Bạn có thể đang bị LỪA ĐẢO!",
+                  translate("scam_title"),
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.white,
@@ -360,7 +360,7 @@ class ScamWarningDialogState extends State<ScamWarningDialog> {
                 ),
                 SizedBox(height: 18),
                 Text(
-                  "Nếu bạn đang nói chuyện với người KHÔNG quen biết và TIN TƯỞNG, người đó yêu cầu bạn sử dụng AFK Zone và bật dịch vụ, đừng tiếp tục và cúp máy ngay lập tức.\n\nHọ có thể là kẻ lừa đảo đang cố gắng đánh cắp tiền hoặc thông tin cá nhân của bạn.",
+                  "${translate("scam_text1").replaceAll("RustDesk", "AFK Zone")}\n\n${translate("scam_text2")}",
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.bold,
@@ -378,7 +378,7 @@ class ScamWarningDialogState extends State<ScamWarningDialog> {
                       },
                     ),
                     Text(
-                      "Không hiển thị lại",
+                      translate("Don't show again"),
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -408,8 +408,8 @@ class ScamWarningDialogState extends State<ScamWarningDialog> {
                         ),
                         child: Text(
                           isButtonLocked
-                              ? "Đồng ý (${_countdown}s)"
-                              : "Đồng ý",
+                              ? "${translate("I Agree")} (${_countdown}s)"
+                              : translate("I Agree"),
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 13.0,
@@ -430,7 +430,7 @@ class ScamWarningDialogState extends State<ScamWarningDialog> {
                           backgroundColor: Colors.blueAccent,
                         ),
                         child: Text(
-                          "Từ chối",
+                          translate("Decline"),
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 13.0,

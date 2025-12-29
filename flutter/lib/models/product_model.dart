@@ -26,17 +26,27 @@ class Product {
   });
 
   factory Product.fromJson(Map<String, dynamic> json) {
+    // Ensure price is int (API might return string)
+    int price;
+    if (json['price'] is int) {
+      price = json['price'];
+    } else if (json['price'] is String) {
+      price = int.tryParse(json['price']) ?? 0;
+    } else {
+      price = json['price']?.toInt() ?? 0;
+    }
+    
     return Product(
       id: json['id'],
-      name: json['name'],
+      name: json['name'] ?? '',
       tier: json['tier'],
       durationDays: json['duration_days'],
-      price: json['price'],
-      displayPrice: json['display_price'],  // NEW
+      price: price,
+      displayPrice: json['display_price'] ?? '',
       maxDevices: json['max_devices'],
-      maxDevicesDisplay: json['max_devices_display'],  // NEW
-      isActive: json['is_active'],
-      displayOrder: json['display_order'],
+      maxDevicesDisplay: json['max_devices_display'] ?? '',
+      isActive: json['is_active'] ?? true,
+      displayOrder: json['display_order'] ?? 0,
       description: json['description'],
     );
   }

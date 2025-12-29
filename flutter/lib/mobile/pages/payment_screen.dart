@@ -7,6 +7,7 @@ import 'package:flutter_hbb/common/license_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'payment_qr_screen.dart';
 import 'cart_page.dart';
+import 'license_wrapper.dart' as license_wrapper;
 
 class PaymentScreen extends StatefulWidget {
   @override
@@ -36,6 +37,15 @@ class _PaymentScreenState extends State<PaymentScreen> {
       print('🔄 PaymentScreen: Loading products from API...');
       final products = await ProductService.fetchProductsByTier();
       print('✅ PaymentScreen: Loaded ${products.length} tiers');
+      
+      // Debug: Log all products to verify prices
+      print('📦 Products loaded by tier:');
+      products.forEach((tier, productList) {
+        print('  $tier:');
+        for (var p in productList) {
+          print('    - ${p.durationDays} ngày: price=${p.price}, displayPrice=${p.displayPrice}');
+        }
+      });
       
       setState(() {
         _productsByTier = products;
@@ -192,16 +202,26 @@ class _PaymentScreenState extends State<PaymentScreen> {
               Expanded(
                 child: ElevatedButton(
                   onPressed: () async {
-                    // Handle free 7-day license (same as trial)
-                    if (is7DaysFree) {
-                      await _handleFree7DaysLicense(product);
-                    } else {
-                      // Paid products - go to payment screen
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (c) => PaymentQRScreen(tier: product.tier, durationDays: product.durationDays),
-                        ),
+                    print('🔍 Product clicked: ${product.tier} ${product.durationDays} ngày, price=${product.price}, isFree=$isFree, is7DaysFree=$is7DaysFree');
+                    try {
+                      // Handle free 7-day license (same as trial) - only if price is 0
+                      if (is7DaysFree) {
+                        print('✅ Handling as FREE 7-day trial');
+                        await _handleFree7DaysLicense(product);
+                      } else {
+                        // All paid products (including 7-day with price > 0) - go to payment screen
+                        print('✅ Navigating to PaymentQRScreen for paid product: ${product.tier} ${product.durationDays} days');
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (c) => PaymentQRScreen(tier: product.tier, durationDays: product.durationDays),
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      print('❌ Error in product button: $e');
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Lỗi: ${e.toString()}'), duration: Duration(seconds: 3)),
                       );
                     }
                   },
@@ -289,14 +309,34 @@ class _PaymentScreenState extends State<PaymentScreen> {
         );
 
         if (activationResult != null) {
-          // Save license info
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('license_key', result['license_key']);
-          await prefs.setString('device_id', deviceId);
-          await prefs.setBool('afk_license_active', true);
-          
           // Add license_key to result for callback
           activationResult['license_key'] = result['license_key'];
+          
+          // Call LicenseWrapper callback to save license properly
+          final licenseWrapperState = context.findAncestorStateOfType<license_wrapper.LicenseWrapperState>();
+          if (licenseWrapperState != null) {
+            await licenseWrapperState.onLicenseActivated(activationResult);
+          } else {
+            // Fallback: save manually if wrapper not found
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString('license_key', result['license_key']);
+            await prefs.setString('device_id', deviceId);
+            await prefs.setBool('afk_license_active', true);
+            if (activationResult['expires_at'] != null) {
+              try {
+                int expiresAt;
+                if (activationResult['expires_at'] is String) {
+                  final dateTime = DateTime.parse(activationResult['expires_at']);
+                  expiresAt = dateTime.millisecondsSinceEpoch;
+                } else {
+                  expiresAt = activationResult['expires_at'] as int;
+                }
+                await prefs.setInt('afk_license_expires_at', expiresAt);
+              } catch (e) {
+                print('Error parsing expires_at: $e');
+              }
+            }
+          }
           
           // Show success dialog
           showDialog(
