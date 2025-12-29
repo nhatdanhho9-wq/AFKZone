@@ -743,21 +743,23 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
                           color: Colors.white,
                           icon: Icon(Icons.more_vert),
                           onPressed: () {
-                        setState(() => _showEdit = false);
-                        showActions(widget.id);
-                      },
-                    ),
-                  ]),
-          Obx(() => IconButton(
-                color: Colors.white,
-                icon: Icon(Icons.expand_more),
-                onPressed: gFFI.ffiModel.waitForFirstImage.isTrue
-                    ? null
-                    : () {
-                        setState(() => _showBar = !_showBar);
-                      },
-              )),
-        ],
+                            setState(() => _showEdit = false);
+                            showActions(widget.id);
+                          },
+                        ),
+                        Obx(() => IconButton(
+                              color: Colors.white,
+                              icon: Icon(Icons.expand_more),
+                              onPressed: gFFI.ffiModel.waitForFirstImage.isTrue
+                                  ? null
+                                  : () {
+                                      setState(() => _showBar = !_showBar);
+                                    },
+                            )),
+                      ]),
+            ],
+          ),
+        ),
       ),
     );
   }
