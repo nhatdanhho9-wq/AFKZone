@@ -86,7 +86,13 @@ class _LicensePageState extends State<LicensePage> {
       );
 
       if (result != null) {
+        setState(() => _isLoading = false);
         widget.onLicenseActivated(result);
+      } else {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Activation failed';
+        });
       }
     } catch (e) {
       setState(() {

@@ -36,6 +36,11 @@ class Product {
   }
 
   String get formattedPrice {
+    // Show "Miễn phí" for 7-day products
+    if (durationDays == 7 && price <= 1000) {
+      return 'Miễn phí';
+    }
+
     if (price >= 1000000) {
       return '${(price / 1000000).toStringAsFixed(1)}M';
     } else if (price >= 1000) {
