@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- AFK Zone brand color - dark blue from license page -->
+    <!-- AFK Zone brand colors -->
+    <color name="primary">#673AB7</color>
     <color name="splash_background">#0D47A1</color>
 </resources>
