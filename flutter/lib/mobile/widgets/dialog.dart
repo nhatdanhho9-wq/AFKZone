@@ -150,6 +150,18 @@ void setTemporaryPasswordLengthDialog(
 
 void showServerSettings(OverlayDialogManager dialogManager,
     void Function(VoidCallback) setState) async {
+  // Hide dialog if license is active (server configs are auto-applied)
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final isLicenseActive = prefs.getBool('afk_license_active') ?? false;
+    if (isLicenseActive) {
+      showToast('Cấu hình server được tự động điền từ license. Không cần chỉnh sửa.');
+      return;
+    }
+  } catch (e) {
+    print('Error checking license: $e');
+  }
+  
   Map<String, dynamic> options = {};
   try {
     options = jsonDecode(await bind.mainGetOptions());
