@@ -299,11 +299,11 @@ void showServerSettingsWithValue(
                     ),
                   ],
                   buildField(translate('ID Server'), idCtrl, idServerMsg.value,
-                      autofocus: !isLicenseActive, enabled: !isLicenseActive),
+                      autofocus: !isLicenseActive, enabled: !isLicenseActive, readOnly: isLicenseActive),
                   SizedBox(height: 8),
                   if (!isIOS && !isWeb) ...[
                     buildField(translate('Relay Server'), relayCtrl,
-                        relayServerMsg.value, enabled: !isLicenseActive),
+                        relayServerMsg.value, enabled: !isLicenseActive, readOnly: isLicenseActive),
                     SizedBox(height: 8),
                   ],
                   buildField(
@@ -311,6 +311,7 @@ void showServerSettingsWithValue(
                     apiCtrl,
                     apiServerMsg.value,
                     enabled: !isLicenseActive,
+                    readOnly: isLicenseActive,
                     validator: (v) {
                       if (v != null && v.isNotEmpty) {
                         if (!(v.startsWith('http://') ||
@@ -322,7 +323,7 @@ void showServerSettingsWithValue(
                     },
                   ),
                   SizedBox(height: 8),
-                  buildField('Key', keyCtrl, '', enabled: !isLicenseActive),
+                  buildField('Key', keyCtrl, '', enabled: !isLicenseActive, readOnly: isLicenseActive),
                   if (isInProgress)
                     Padding(
                       padding: EdgeInsets.only(top: 8),
