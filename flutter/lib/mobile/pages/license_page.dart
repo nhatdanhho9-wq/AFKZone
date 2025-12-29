@@ -236,7 +236,6 @@ class _LicensePageState extends State<LicensePage> {
                           ),
                         ),
                       ),
-                      ),
                     ],
                   ),
                 ),
