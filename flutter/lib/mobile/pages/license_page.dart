@@ -17,18 +17,196 @@ class LicensePage extends StatefulWidget {
 
 class _LicensePageState extends State<LicensePage> {
   final TextEditingController _licenseKeyController = TextEditingController();
+  final TextEditingController _transCodeController = TextEditingController();
   bool _isLoading = false;
+  bool _isRecovering = false;
   String? _errorMessage;
   bool _hasTrialed = false;
   bool _trialLoading = true;
   List<Product> _products = [];
   bool _productsLoading = true;
+  List<Map<String, dynamic>> _purchaseHistory = [];
 
   @override
   void initState() {
     super.initState();
     _checkTrial();
     _loadProducts();
+    _loadPurchaseHistory();
+  }
+
+  Future<void> _loadPurchaseHistory() async {
+    try {
+      final deviceId = await _getDeviceId();
+      final history = await LicenseService.getPurchaseHistory(deviceId);
+      if (mounted) {
+        setState(() {
+          _purchaseHistory = history;
+        });
+      }
+    } catch (e) {
+      print('Error loading purchase history: $e');
+    }
+  }
+
+  Future<void> _recoverLicense() async {
+    final transCode = _transCodeController.text.trim();
+    if (transCode.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Vui lòng nhập mã giao dịch')),
+      );
+      return;
+    }
+
+    setState(() => _isRecovering = true);
+    try {
+      final result = await LicenseService.recoverLicense(transCode);
+      if (result != null && result['license_key'] != null) {
+        // Copy license key to clipboard
+        await Clipboard.setData(ClipboardData(text: result['license_key']));
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('✅ Đã tìm thấy license! Key đã được copy.'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 3),
+            ),
+          );
+          // Auto-fill license key
+          _licenseKeyController.text = result['license_key'];
+          _loadPurchaseHistory(); // Refresh history
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ ${e.toString().replaceAll('Exception: ', '')}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isRecovering = false);
+      }
+    }
+  }
+
+  Widget _buildLicenseHistoryItem(Map<String, dynamic> license) {
+    final licenseKey = license['license_key'] ?? '';
+    final tier = license['tier'] ?? 'unknown';
+    final expiresAt = license['expires_at'] ?? '';
+    final status = license['status'] ?? 'unknown';
+    
+    Color statusColor = Colors.grey;
+    String statusText = status;
+    if (status == 'active') {
+      statusColor = Colors.green;
+      statusText = 'Hoạt động';
+    } else if (status == 'expired') {
+      statusColor = Colors.red;
+      statusText = 'Hết hạn';
+    }
+
+    return Container(
+      margin: EdgeInsets.only(bottom: 8),
+      padding: EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey[300]!),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: _getTierColor(tier),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  tier.toUpperCase(),
+                  style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                ),
+              ),
+              SizedBox(width: 8),
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: statusColor.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  statusText,
+                  style: TextStyle(color: statusColor, fontSize: 11, fontWeight: FontWeight.bold),
+                ),
+              ),
+              Spacer(),
+              IconButton(
+                icon: Icon(Icons.copy, size: 18),
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: licenseKey));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Đã copy license key')),
+                  );
+                },
+                padding: EdgeInsets.zero,
+                constraints: BoxConstraints(),
+              ),
+            ],
+          ),
+          SizedBox(height: 6),
+          Text(
+            licenseKey,
+            style: TextStyle(fontSize: 12, fontFamily: 'monospace', color: Colors.grey[700]),
+          ),
+          if (expiresAt.isNotEmpty)
+            Padding(
+              padding: EdgeInsets.only(top: 4),
+              child: Text(
+                'Hết hạn: $expiresAt',
+                style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+              ),
+            ),
+          SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                _licenseKeyController.text = licenseKey;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Đã điền license key, bấm KÍCH HOẠT để sử dụng')),
+                );
+              },
+              icon: Icon(Icons.login, size: 16),
+              label: Text('Kích hoạt trên thiết bị này'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+                padding: EdgeInsets.symmetric(vertical: 8),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _getTierColor(String tier) {
+    switch (tier.toLowerCase()) {
+      case 'pro':
+        return Colors.purple;
+      case 'enterprise':
+        return Colors.orange;
+      case 'basic':
+      default:
+        return Colors.blue;
+    }
   }
 
   Future<void> _loadProducts() async {
@@ -393,6 +571,86 @@ class _LicensePageState extends State<LicensePage> {
                     ),
                   ),
                 ),
+
+              SizedBox(height: 16),
+
+              // Purchase History & License Recovery Card
+              Card(
+                elevation: 2,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.history, color: Colors.blue),
+                          SizedBox(width: 8),
+                          Text(
+                            'Lịch sử & Khôi phục License',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 12),
+                      Text(
+                        'Nếu bạn đã mua license trước đó, nhập mã giao dịch để khôi phục:',
+                        style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                      ),
+                      SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _transCodeController,
+                              decoration: InputDecoration(
+                                labelText: 'Mã giao dịch',
+                                hintText: 'AFKPRO90251230003',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.receipt_long),
+                                isDense: true,
+                              ),
+                              style: TextStyle(fontSize: 14),
+                            ),
+                          ),
+                          SizedBox(width: 8),
+                          ElevatedButton(
+                            onPressed: _isRecovering ? null : _recoverLicense,
+                            style: ElevatedButton.styleFrom(
+                              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                              backgroundColor: Colors.orange,
+                            ),
+                            child: _isRecovering
+                                ? SizedBox(
+                                    height: 18,
+                                    width: 18,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                  )
+                                : Text('Khôi phục', style: TextStyle(color: Colors.white)),
+                          ),
+                        ],
+                      ),
+                      if (_purchaseHistory.isNotEmpty) ...[
+                        SizedBox(height: 16),
+                        Divider(),
+                        SizedBox(height: 8),
+                        Text(
+                          'License của bạn:',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        SizedBox(height: 8),
+                        ..._purchaseHistory.map((license) => _buildLicenseHistoryItem(license)).toList(),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
 
               SizedBox(height: 24),
 

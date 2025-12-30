@@ -225,4 +225,47 @@ class LicenseService {
       return null;
     }
   }
+
+  // Get purchase history for a device
+  static Future<List<Map<String, dynamic>>> getPurchaseHistory(String deviceId) async {
+    try {
+      final fingerprint = await getDeviceFingerprint();
+      final response = await http.get(
+        Uri.parse('$API_URL/user/history?device_id=$deviceId&fingerprint=$fingerprint'),
+        headers: {'Content-Type': 'application/json'},
+      ).timeout(Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['licenses'] != null) {
+          return List<Map<String, dynamic>>.from(data['licenses']);
+        }
+      }
+      return [];
+    } catch (e) {
+      print('Error getting purchase history: $e');
+      return [];
+    }
+  }
+
+  // Recover license by transaction code
+  static Future<Map<String, dynamic>?> recoverLicense(String transCode) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$API_URL/license/recover'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'trans_code': transCode}),
+      ).timeout(Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        final error = json.decode(response.body);
+        throw Exception(error['detail'] ?? 'Recovery failed');
+      }
+    } catch (e) {
+      print('Error recovering license: $e');
+      rethrow;
+    }
+  }
 }
