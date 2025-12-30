@@ -371,6 +371,7 @@
                 <button class="nav-tab" onclick="showTab('licenses')">🔑 Licenses</button>
                 <button class="nav-tab" onclick="showTab('devices')">📱 Thiết bị</button>
                 <button class="nav-tab" onclick="showTab('connections')">🔌 Kết nối</button>
+                <button class="nav-tab" onclick="showTab('orders')">💳 Đơn hàng</button>
             </div>
 
             <!-- Dashboard Tab -->
@@ -459,6 +460,40 @@
                         </thead>
                         <tbody id="devices-tbody">
                             <!-- Devices will be loaded here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Orders Tab -->
+            <div id="tab-orders" class="tab-content">
+                <h2>Quản lý đơn hàng</h2>
+                <div class="search-box">
+                    <select id="order-status-filter" onchange="loadOrders()" style="padding: 10px; border-radius: 5px; border: 1px solid #ddd; margin-right: 10px;">
+                        <option value="">Tất cả trạng thái</option>
+                        <option value="pending">Chờ thanh toán</option>
+                        <option value="success">Thành công</option>
+                        <option value="expired">Hết hạn</option>
+                    </select>
+                    <input type="text" id="order-search" placeholder="Tìm kiếm mã đơn, device ID..." onkeyup="searchOrders()">
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Mã đơn</th>
+                                <th>Gói</th>
+                                <th>Thời hạn</th>
+                                <th>Số tiền</th>
+                                <th>Trạng thái</th>
+                                <th>License</th>
+                                <th>Ngày tạo</th>
+                                <th>Ngày thanh toán</th>
+                                <th>Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody id="orders-table">
+                            <!-- Orders will be loaded here -->
                         </tbody>
                     </table>
                 </div>
@@ -671,6 +706,7 @@
             else if (tabName === 'licenses') loadLicenses();
             else if (tabName === 'devices') loadDevices();
             else if (tabName === 'connections') loadConnections();
+            else if (tabName === 'orders') loadOrders();
         }
 
         async function loadDashboard() {
@@ -1205,6 +1241,81 @@
         function searchConnections() {
             // Implement search
             loadConnections();
+        }
+
+        // ==================== ORDERS ====================
+        async function loadOrders() {
+            try {
+                const status = document.getElementById('order-status-filter')?.value || '';
+                const url = status ? `${API_BASE}/admin/orders?status=${status}` : `${API_BASE}/admin/orders`;
+                
+                const res = await fetch(url, {
+                    headers: {'Authorization': `Bearer ${authToken}`}
+                });
+                
+                if (res.ok) {
+                    const data = await res.json();
+                    const tbody = document.getElementById('orders-table');
+                    
+                    if (data.orders && data.orders.length > 0) {
+                        tbody.innerHTML = data.orders.map(o => `
+                            <tr>
+                                <td><strong>${o.trans_code}</strong></td>
+                                <td>${o.tier.toUpperCase()}</td>
+                                <td>${o.duration_days} ngày</td>
+                                <td>${formatMoney(o.amount)}</td>
+                                <td>
+                                    <span class="badge ${o.status === 'success' ? 'badge-success' : o.status === 'pending' ? 'badge-warning' : 'badge-danger'}">
+                                        ${o.status === 'success' ? 'Thành công' : o.status === 'pending' ? 'Chờ thanh toán' : 'Hết hạn'}
+                                    </span>
+                                </td>
+                                <td>${o.license_key || '<em>Chưa có</em>'}</td>
+                                <td>${new Date(o.created_at).toLocaleString('vi-VN')}</td>
+                                <td>${o.paid_at ? new Date(o.paid_at).toLocaleString('vi-VN') : '<em>Chưa thanh toán</em>'}</td>
+                                <td>
+                                    ${o.status === 'pending' ? 
+                                        `<button class="btn btn-success" onclick="completeOrder('${o.trans_code}')" style="padding: 5px 10px; font-size: 12px;">✓ Hoàn thành</button>` : 
+                                        '<em>-</em>'
+                                    }
+                                </td>
+                            </tr>
+                        `).join('');
+                    } else {
+                        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 20px; color: #999;">Không có đơn hàng nào</td></tr>';
+                    }
+                } else {
+                    alert('Lỗi khi tải danh sách đơn hàng');
+                }
+            } catch (e) {
+                alert('Lỗi: ' + e.message);
+            }
+        }
+
+        async function completeOrder(transCode) {
+            if (!confirm(`Xác nhận hoàn thành đơn hàng ${transCode}? Hệ thống sẽ tự động tạo và kích hoạt license.`)) return;
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/orders/${transCode}/complete`, {
+                    method: 'POST',
+                    headers: {'Authorization': `Bearer ${authToken}`}
+                });
+                
+                if (res.ok) {
+                    const data = await res.json();
+                    alert(`✅ Đơn hàng đã hoàn thành!\n\nLicense: ${data.license_key}\nGói: ${data.tier.toUpperCase()} - ${data.duration_days} ngày`);
+                    loadOrders();
+                } else {
+                    const error = await res.json();
+                    alert('Lỗi: ' + (error.detail || 'Không thể hoàn thành đơn hàng'));
+                }
+            } catch (e) {
+                alert('Lỗi: ' + e.message);
+            }
+        }
+
+        function searchOrders() {
+            // Implement search
+            loadOrders();
         }
     </script>
 </body>
