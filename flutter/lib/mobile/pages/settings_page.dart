@@ -304,6 +304,41 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _logoutLicense() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final deviceId = await LicenseService.getDeviceFingerprint();
+      
+      // Call API to remove device (optional - can just clear local storage)
+      // The device will be removed from license_devices table on next check
+      
+      // Clear local license data
+      await prefs.remove('license_key');
+      await prefs.remove('device_id');
+      await prefs.remove('afk_license_active');
+      await prefs.remove('afk_license_expires_at');
+      await prefs.remove('id_server');
+      await prefs.remove('relay_server');
+      await prefs.remove('api_server');
+      await prefs.remove('public_key');
+      
+      setState(() {
+        _licenseKey = null;
+        _licenseTier = null;
+        _licenseExpiresAt = null;
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Đã đăng xuất license thành công')),
+      );
+    } catch (e) {
+      print('Error logging out license: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Lỗi khi đăng xuất: ${e.toString()}')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     Provider.of<FfiModel>(context);

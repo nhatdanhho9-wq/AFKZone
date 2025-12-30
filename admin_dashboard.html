@@ -756,8 +756,8 @@
 
         async function loadLicenses() {
             try {
-                const res = await fetch(`${API_BASE}/list?admin_key=afkzone-admin-2025`, {
-                    headers: {'admin_key': 'afkzone-admin-2025'}
+                const res = await fetch(`${API_BASE}/admin/licenses?limit=100`, {
+                    headers: {'Authorization': `Bearer ${authToken}`}
                 });
                 if (!res.ok) {
                     throw new Error(`HTTP ${res.status}: ${res.statusText}`);
