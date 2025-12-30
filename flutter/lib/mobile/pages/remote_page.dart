@@ -347,10 +347,9 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
   }
 
   void openKeyboard() {
-    // Toggle custom keyboard with Send Text bar
-    setState(() {
-      _showCustomKeyboard = !_showCustomKeyboard;
-    });
+    // Use system keyboard instead of custom keyboard
+    gFFI.invokeMethod("enable_soft_keyboard", true);
+    _tc.requestFocus();
   }
   
   /// Build compact custom keyboard with Send Text bar

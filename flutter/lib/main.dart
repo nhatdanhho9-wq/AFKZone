@@ -219,7 +219,7 @@ void _prefetchDNS() {
 const String AFK_DEFAULT_ID_SERVER = 'id.afkzone.cloud';
 const String AFK_DEFAULT_RELAY_SERVER = 'id.afkzone.cloud';
 const String AFK_DEFAULT_API_SERVER = 'https://api.afkzone.cloud';
-const String AFK_DEFAULT_KEY = 'gqp8h0tNPFInbxJ4PkEMqqUNTqdT8HJsqKXetWfoNxI=';
+const String AFK_DEFAULT_KEY = 'EXOW136uTrC0PYYrkavoJH7SjkFlzPjB+vzzpvjsybw=';
 
 Future<void> _applyLicenseServerConfigs() async {
   try {

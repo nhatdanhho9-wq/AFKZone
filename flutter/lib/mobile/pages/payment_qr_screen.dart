@@ -212,6 +212,8 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
                     SizedBox(height: 4),
                     Text('✓ Gói ${widget.tier.toUpperCase()}: ${widget.durationDays} ngày', style: TextStyle(fontSize: 13)),
                     SizedBox(height: 4),
+                    Text('✓ Số thiết bị tối đa: ${maxDevices == -1 ? "Không giới hạn" : maxDevices}', style: TextStyle(fontSize: 13)),
+                    SizedBox(height: 4),
                     Text('✓ Xem thông tin license tại: Settings → License Info', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
                     SizedBox(height: 4),
                     Text('✓ Copy license key để kích hoạt trên thiết bị khác', style: TextStyle(fontSize: 13)),
