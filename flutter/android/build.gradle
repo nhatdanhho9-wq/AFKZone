@@ -3,7 +3,6 @@ allprojects {
         google()
         mavenCentral()
         maven { url 'https://jitpack.io' }
-        // Fallback repositories for better reliability
         maven { url 'https://repo1.maven.org/maven2' }
     }
 }
@@ -11,24 +10,7 @@ allprojects {
 rootProject.buildDir = '../build'
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
-}
-subprojects {
     project.evaluationDependsOn(':app')
-    // Workaround for desktop-only plugins (not for Android)
-    afterEvaluate { project ->
-        if (project.name == 'desktop_drop' || project.name == 'device_info_plus') {
-            // Skip Android configuration checks for desktop-only plugins
-            project.tasks.configureEach { task ->
-                if (task.name.contains('android') || task.name.contains('Android')) {
-                    task.enabled = false
-                }
-            }
-            // Fix for "Could not get unknown property 'android'" error
-            if (!project.hasProperty('android')) {
-                project.ext.android = [:]
-            }
-        }
-    }
 }
 
 tasks.register("clean", Delete) {

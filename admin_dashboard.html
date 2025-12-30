@@ -742,9 +742,10 @@
                         <td>
                             <button class="btn btn-primary" onclick="editProduct(${p.id})" style="padding: 5px 10px; font-size: 12px;">Sửa</button>
                             ${p.is_active ? 
-                                '<button class="btn btn-danger" onclick="deleteProduct(' + p.id + ')" style="padding: 5px 10px; font-size: 12px;">Tắt</button>' :
+                                '<button class="btn btn-warning" onclick="deleteProduct(' + p.id + ')" style="padding: 5px 10px; font-size: 12px;">Tắt</button>' :
                                 '<button class="btn btn-success" onclick="enableProduct(' + p.id + ')" style="padding: 5px 10px; font-size: 12px;">Bật</button>'
                             }
+                            <button class="btn btn-danger" onclick="deleteProductPermanent(${p.id})" style="padding: 5px 10px; font-size: 12px;">Xóa</button>
                         </td>
                     </tr>
                 `).join('');
@@ -967,6 +968,31 @@
                 } else {
                     const error = await res.json();
                     let errorMsg = error.detail || 'Không thể bật sản phẩm';
+                    if (Array.isArray(error.detail)) {
+                        errorMsg = error.detail.map(e => e.msg || e).join(', ');
+                    }
+                    alert('Lỗi: ' + errorMsg);
+                }
+            } catch (e) {
+                alert('Lỗi: ' + e.message);
+            }
+        }
+
+        async function deleteProductPermanent(productId) {
+            if (!confirm('⚠️ Bạn có chắc muốn XÓA HOÀN TOÀN sản phẩm này? Hành động này không thể hoàn tác!')) return;
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/products/${productId}/permanent`, {
+                    method: 'DELETE',
+                    headers: {'Authorization': `Bearer ${authToken}`}
+                });
+                
+                if (res.ok) {
+                    alert('Sản phẩm đã được xóa hoàn toàn!');
+                    loadProducts();
+                } else {
+                    const error = await res.json();
+                    let errorMsg = error.detail || 'Không thể xóa sản phẩm';
                     if (Array.isArray(error.detail)) {
                         errorMsg = error.detail.map(e => e.msg || e).join(', ');
                     }
