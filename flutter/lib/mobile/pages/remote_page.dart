@@ -337,11 +337,13 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
 
   void inputChar(String char) {
     if (char == '\n') {
-      char = 'VK_RETURN';
+      inputModel.inputKey('VK_RETURN');
     } else if (char == ' ') {
-      char = 'VK_SPACE';
+      inputModel.inputKey('VK_SPACE');
+    } else {
+      // For regular characters, use inputString which handles character input properly
+      bind.sessionInputString(sessionId: sessionId, value: char);
     }
-    inputModel.inputKey(char);
   }
 
   void openKeyboard() {

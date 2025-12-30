@@ -215,28 +215,47 @@ void _prefetchDNS() {
   });
 }
 
+/// AFK Zone default server configuration - ALWAYS applied
+const String AFK_DEFAULT_ID_SERVER = 'id.afkzone.cloud';
+const String AFK_DEFAULT_RELAY_SERVER = 'id.afkzone.cloud';
+const String AFK_DEFAULT_API_SERVER = 'https://api.afkzone.cloud';
+const String AFK_DEFAULT_KEY = 'gqp8h0tNPFInbxJ4PkEMqqUNTqdT8HJsqKXetWfoNxI=';
+
 Future<void> _applyLicenseServerConfigs() async {
   try {
     final prefs = await SharedPreferences.getInstance();
-    final isLicenseActive = prefs.getBool('afk_license_active') ?? false;
     
+    // ALWAYS apply AFK Zone server - regardless of license status
+    // This ensures all clients connect to our server, not RustDesk's
+    String idServer = AFK_DEFAULT_ID_SERVER;
+    String relayServer = AFK_DEFAULT_RELAY_SERVER;
+    String apiServer = AFK_DEFAULT_API_SERVER;
+    String publicKey = AFK_DEFAULT_KEY;
+    
+    // If license has custom server configs, use those instead
+    final isLicenseActive = prefs.getBool('afk_license_active') ?? false;
     if (isLicenseActive) {
-      final idServer = prefs.getString('id_server') ?? '';
-      final relayServer = prefs.getString('relay_server') ?? '';
-      final apiServer = prefs.getString('api_server') ?? '';
-      final publicKey = prefs.getString('public_key') ?? '';
+      final licenseIdServer = prefs.getString('id_server') ?? '';
+      final licenseRelayServer = prefs.getString('relay_server') ?? '';
+      final licenseApiServer = prefs.getString('api_server') ?? '';
+      final licenseKey = prefs.getString('public_key') ?? '';
       
-      if (idServer.isNotEmpty || relayServer.isNotEmpty || apiServer.isNotEmpty || publicKey.isNotEmpty) {
-        print('🔄 Auto-applying license server configs...');
-        await bind.mainSetOption(key: 'custom-rendezvous-server', value: idServer);
-        await bind.mainSetOption(key: 'relay-server', value: relayServer);
-        await bind.mainSetOption(key: 'api-server', value: apiServer);
-        await bind.mainSetOption(key: 'key', value: publicKey);
-        print('✅ License server configs applied: id=$idServer, relay=$relayServer, api=$apiServer');
-      }
+      if (licenseIdServer.isNotEmpty) idServer = licenseIdServer;
+      if (licenseRelayServer.isNotEmpty) relayServer = licenseRelayServer;
+      if (licenseApiServer.isNotEmpty) apiServer = licenseApiServer;
+      if (licenseKey.isNotEmpty) publicKey = licenseKey;
     }
+    
+    // Apply server configs
+    print('🔄 Applying AFK Zone server configs...');
+    await bind.mainSetOption(key: 'custom-rendezvous-server', value: idServer);
+    await bind.mainSetOption(key: 'relay-server', value: relayServer);
+    await bind.mainSetOption(key: 'api-server', value: apiServer);
+    await bind.mainSetOption(key: 'key', value: publicKey);
+    print('✅ Server configs applied: id=$idServer, relay=$relayServer');
+    
   } catch (e) {
-    print('❌ Error applying license server configs: $e');
+    print('❌ Error applying server configs: $e');
   }
 }
 
