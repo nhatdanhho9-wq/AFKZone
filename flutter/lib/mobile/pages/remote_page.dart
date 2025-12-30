@@ -79,9 +79,11 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
   final FocusNode _mobileFocusNode = FocusNode();
   final FocusNode _physicalFocusNode = FocusNode();
   var _showEdit = false; // use soft keyboard
-  // Custom keyboard state
+  
+  // Custom keyboard with Send Text bar
   bool _showCustomKeyboard = false;
-  Offset _keyboardPosition = Offset.zero;
+  final TextEditingController _sendTextController = TextEditingController();
+  bool _shiftPressed = false;
 
   InputModel get inputModel => gFFI.inputModel;
   SessionID get sessionId => gFFI.sessionId;
@@ -152,6 +154,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     _timer?.cancel();
     _timerDidChangeMetrics?.cancel();
     _fabInactivityTimer?.cancel(); // Cleanup FAB auto-transparent timer
+    _sendTextController.dispose(); // Cleanup custom keyboard text controller
     gFFI.dialogManager.dismissAll();
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
         overlays: SystemUiOverlay.values);
@@ -342,112 +345,98 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
   }
 
   void openKeyboard() {
-    // Toggle custom keyboard instead of system keyboard
+    // Toggle custom keyboard with Send Text bar
     setState(() {
       _showCustomKeyboard = !_showCustomKeyboard;
-      if (_showCustomKeyboard && _keyboardPosition == Offset.zero) {
-        // Center the keyboard on first open
-        // Will be calculated properly in build method with MediaQuery
-        _keyboardPosition = Offset(50, 300); // Placeholder, will be centered in widget
-      }
     });
   }
-
-  Widget _buildCustomKeyboard(BuildContext context) {
-    final screenSize = MediaQuery.of(context).size;
-    final keyboardHeight = screenSize.height * 0.2; // 20% of screen
-    final keyboardWidth = screenSize.width * 0.9; // 90% of screen width
-    
-    // Center position if not set yet
-    if (_keyboardPosition == Offset.zero) {
-      _keyboardPosition = Offset(
-        (screenSize.width - keyboardWidth) / 2,
-        (screenSize.height - keyboardHeight) / 2,
-      );
-    }
+  
+  /// Build compact custom keyboard with Send Text bar
+  Widget _buildCustomKeyboardPanel() {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final keyWidth = (screenWidth - 28) / 13; // 13 keys per row max, with padding
     
     return Positioned(
-      left: _keyboardPosition.dx,
-      top: _keyboardPosition.dy,
-      child: GestureDetector(
-        onPanUpdate: (details) {
-          setState(() {
-            _keyboardPosition = Offset(
-              (_keyboardPosition.dx + details.delta.dx).clamp(0.0, screenSize.width - keyboardWidth),
-              (_keyboardPosition.dy + details.delta.dy).clamp(0.0, screenSize.height - keyboardHeight),
-            );
-          });
-        },
-        child: Container(
-          width: keyboardWidth,
-          height: keyboardHeight,
-          decoration: BoxDecoration(
-            color: Colors.black87,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.blue, width: 2),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black54,
-                blurRadius: 10,
-                spreadRadius: 2,
-              ),
-            ],
-          ),
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: Material(
+        elevation: 10,
+        color: Color(0xFF1a1a1a),
+        child: SafeArea(
+          top: false,
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              // Header with title and close button
+              // Send Text Bar
               Container(
-                height: 30,
-                padding: EdgeInsets.symmetric(horizontal: 8),
-                decoration: BoxDecoration(
-                  color: Colors.blue,
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(10),
-                    topRight: Radius.circular(10),
-                  ),
-                ),
+                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                color: Color(0xFF2d2d2d),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Icon(Icons.keyboard, color: Colors.white, size: 18),
-                    Text(
-                      'Keyboard',
-                      style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                    Expanded(
+                      child: Container(
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: Color(0xFF3d3d3d),
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                        child: TextField(
+                          controller: _sendTextController,
+                          style: TextStyle(color: Colors.white, fontSize: 14),
+                          decoration: InputDecoration(
+                            hintText: 'Nhập text để gửi...',
+                            hintStyle: TextStyle(color: Colors.grey[500], fontSize: 14),
+                            border: InputBorder.none,
+                            contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          ),
+                        ),
+                      ),
                     ),
-                    IconButton(
-                      icon: Icon(Icons.close, color: Colors.white, size: 18),
-                      padding: EdgeInsets.zero,
-                      constraints: BoxConstraints(),
-                      onPressed: () {
-                        setState(() {
-                          _showCustomKeyboard = false;
-                        });
+                    SizedBox(width: 8),
+                    InkWell(
+                      onTap: () {
+                        final text = _sendTextController.text;
+                        if (text.isNotEmpty) {
+                          // Send each character
+                          for (var char in text.characters) {
+                            inputModel.inputKey(char);
+                          }
+                          _sendTextController.clear();
+                        }
                       },
+                      child: Container(
+                        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: MyTheme.accent,
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                        child: Text('Gửi', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      ),
                     ),
                   ],
                 ),
               ),
-              // Keyboard layout
-              Expanded(
-                child: Padding(
-                  padding: EdgeInsets.all(4),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _buildKeyboardRow(['1', '2', '3', '4', '5', '6', '7', '8', '9', '0']),
-                      _buildKeyboardRow(['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p']),
-                      _buildKeyboardRow(['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l']),
-                      _buildKeyboardRow(['z', 'x', 'c', 'v', 'b', 'n', 'm', '<', '>', '?']),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          _buildKey('Space', flex: 4, width: keyboardWidth * 0.4),
-                          _buildKey('Enter', flex: 2, width: keyboardWidth * 0.2),
-                          _buildKey('⌫', flex: 1, width: keyboardWidth * 0.15),
-                        ],
-                      ),
-                    ],
-                  ),
+              // Keyboard rows - compact height
+              Container(
+                padding: EdgeInsets.all(4),
+                child: Column(
+                  children: [
+                    // Row 1: Numbers
+                    _buildKeyRow(['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '⌫'], keyWidth),
+                    SizedBox(height: 3),
+                    // Row 2: QWERTY
+                    _buildKeyRow(['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\\'], keyWidth),
+                    SizedBox(height: 3),
+                    // Row 3: ASDF
+                    _buildKeyRow(['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', "'", 'Enter'], keyWidth),
+                    SizedBox(height: 3),
+                    // Row 4: ZXCV
+                    _buildKeyRow(['⇧', 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', '⇧'], keyWidth),
+                    SizedBox(height: 3),
+                    // Row 5: Control keys
+                    _buildKeyRow(['Ctrl', 'Alt', 'Space', 'Tab', 'Esc', '✕'], keyWidth, isControlRow: true),
+                  ],
                 ),
               ),
             ],
@@ -456,54 +445,101 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
       ),
     );
   }
-
-  Widget _buildKeyboardRow(List<String> keys) {
+  
+  Widget _buildKeyRow(List<String> keys, double baseWidth, {bool isControlRow = false}) {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: keys.map((key) => _buildKey(key)).toList(),
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: keys.map((key) {
+        double width = baseWidth;
+        // Special key widths
+        if (key == 'Space') width = baseWidth * 4;
+        else if (key == 'Enter') width = baseWidth * 1.5;
+        else if (key == '⌫') width = baseWidth * 1.2;
+        else if (key == '⇧') width = baseWidth * 1.3;
+        else if (key == 'Ctrl' || key == 'Alt' || key == 'Tab' || key == 'Esc') width = baseWidth * 1.5;
+        else if (key == '✕') width = baseWidth * 1.2;
+        
+        return _buildKeyButton(key, width);
+      }).toList(),
     );
   }
-
-  Widget _buildKey(String key, {int flex = 1, double? width}) {
+  
+  Widget _buildKeyButton(String key, double width) {
+    final isSpecial = ['⌫', '⇧', 'Enter', 'Ctrl', 'Alt', 'Tab', 'Esc', 'Space', '✕'].contains(key);
+    final isShift = key == '⇧';
+    final isClose = key == '✕';
+    
     return Padding(
-      padding: EdgeInsets.all(2),
+      padding: EdgeInsets.symmetric(horizontal: 1),
       child: InkWell(
-        onTap: () => _sendKey(key),
+        onTap: () => _onKeyTap(key),
         child: Container(
-          width: width ?? 28,
-          height: 28,
+          width: width,
+          height: 32,
           decoration: BoxDecoration(
-            color: Colors.grey[800],
+            color: isClose ? Colors.red[700] : (isShift && _shiftPressed) ? MyTheme.accent : (isSpecial ? Color(0xFF4a4a4a) : Color(0xFF3a3a3a)),
             borderRadius: BorderRadius.circular(4),
-            border: Border.all(color: Colors.grey[600]!),
+            border: Border.all(color: Color(0xFF5a5a5a), width: 0.5),
           ),
           child: Center(
             child: Text(
-              key,
-              style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+              key == 'Space' ? '␣' : key,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: isSpecial ? 11 : 13,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
         ),
       ),
     );
   }
-
-  void _sendKey(String key) {
-    // Send key to remote desktop
-    if (key == 'Space') {
-      inputModel.inputKey(' ');
-    } else if (key == 'Enter') {
-      inputModel.inputKey('\n');
-    } else if (key == '⌫') {
-      inputModel.inputKey('backspace');
-    } else {
-      inputModel.inputKey(key);
+  
+  void _onKeyTap(String key) {
+    switch (key) {
+      case '✕':
+        setState(() => _showCustomKeyboard = false);
+        break;
+      case '⌫':
+        inputModel.inputKey('VK_BACK');
+        break;
+      case 'Enter':
+        inputModel.inputKey('VK_RETURN');
+        break;
+      case '⇧':
+        setState(() => _shiftPressed = !_shiftPressed);
+        break;
+      case 'Ctrl':
+        inputModel.inputKey('VK_CONTROL');
+        break;
+      case 'Alt':
+        inputModel.inputKey('VK_MENU');
+        break;
+      case 'Tab':
+        inputModel.inputKey('VK_TAB');
+        break;
+      case 'Esc':
+        inputModel.inputKey('VK_ESCAPE');
+        break;
+      case 'Space':
+        inputModel.inputKey(' ');
+        break;
+      default:
+        // Regular character
+        String char = _shiftPressed ? key.toUpperCase() : key;
+        inputModel.inputKey(char);
+        if (_shiftPressed) {
+          setState(() => _shiftPressed = false);
+        }
+        break;
     }
   }
+
   Widget _bottomWidget() => _showGestureHelp
       ? getGestureHelp()
       : (_showBar && gFFI.ffiModel.pi.displays.isNotEmpty
-          ? _buildOverlayBottomBar()
+          ? getBottomAppBar()
           : Offstage());
 
   // Reset FAB inactivity timer - called on any user interaction
@@ -579,8 +615,8 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
         return false;
       },
       child: Scaffold(
-          appBar: PreferredSize(preferredSize: Size.fromHeight(60), child: Obx(() => Stack(
-                alignment: Alignment.topCenter,
+          bottomNavigationBar: Obx(() => Stack(
+                alignment: Alignment.bottomCenter,
                 children: [
                   gFFI.ffiModel.pi.isSet.isTrue &&
                           gFFI.ffiModel.waitForFirstImage.isTrue
@@ -594,7 +630,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
                       ? emptyOverlay(MyTheme.canvasColor)
                       : Offstage(),
                 ],
-              )),),
+              )),
           body: Obx(
             () => getRawPointerAndKeyBody(Overlay(
               initialEntries: [
@@ -631,9 +667,10 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
                   final showActionButton = !_showBar || keyboardIsVisible || _showGestureHelp;
                   return _buildDraggableFAB(showActionButton, keyboardIsVisible);
                 }),
+                // Custom keyboard with Send Text bar
                 if (_showCustomKeyboard)
                   OverlayEntry(builder: (context) {
-                    return _buildCustomKeyboard(context);
+                    return _buildCustomKeyboardPanel();
                   }),
               ],
             )),
@@ -657,109 +694,101 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildOverlayBottomBar() {
+  Widget getBottomAppBar() {
     final ffiModel = Provider.of<FfiModel>(context);
-    return Positioned(
-      left: 0,
-      right: 0,
-      bottom: 0,
-      child: Material(
-        elevation: 10,
-        color: MyTheme.accent,
-        child: SafeArea(
-          top: false,
-          child: Row(
-            mainAxisSize: MainAxisSize.max,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: <Widget>[
-              Row(
-                  children: <Widget>[
-                        IconButton(
-                          color: Colors.white,
-                          icon: Icon(Icons.clear),
-                          onPressed: () {
-                            clientClose(sessionId, gFFI);
-                          },
-                        ),
-                        IconButton(
-                          color: Colors.white,
-                          icon: Icon(Icons.tv),
-                          onPressed: () {
-                            setState(() => _showEdit = false);
-                            showOptions(context, widget.id, gFFI.dialogManager);
-                          },
-                        )
-                      ] +
-                      (isWebDesktop || ffiModel.viewOnly || !ffiModel.keyboard
-                          ? []
-                          : gFFI.ffiModel.isPeerAndroid
-                              ? [
-                                  IconButton(
-                                      color: Colors.white,
-                                      icon: Icon(Icons.keyboard),
-                                      onPressed: openKeyboard),
-                                  IconButton(
-                                    color: Colors.white,
-                                    icon: const Icon(Icons.build),
-                                    onPressed: () => gFFI.dialogManager
-                                        .toggleMobileActionsOverlay(ffi: gFFI),
-                                  )
-                                ]
-                              : [
-                                  IconButton(
-                                      color: Colors.white,
-                                      icon: Icon(Icons.keyboard),
-                                      onPressed: openKeyboard),
-                                  IconButton(
-                                    color: Colors.white,
-                                    icon: Icon(gFFI.ffiModel.touchMode
-                                        ? Icons.touch_app
-                                        : Icons.mouse),
-                                    onPressed: () => setState(
-                                        () => _showGestureHelp = !_showGestureHelp),
-                                  ),
-                                ]) +
-                      (isWeb
-                          ? []
-                          : <Widget>[
-                              futureBuilder(
-                                  future: gFFI.invokeMethod(
-                                      "get_value", "KEY_IS_SUPPORT_VOICE_CALL"),
-                                  hasData: (isSupportVoiceCall) => IconButton(
-                                        color: Colors.white,
-                                        icon: isAndroid && isSupportVoiceCall
-                                            ? SvgPicture.asset('assets/chat.svg',
-                                                colorFilter: ColorFilter.mode(
-                                                    Colors.white, BlendMode.srcIn))
-                                            : Icon(Icons.message),
-                                        onPressed: () =>
-                                            isAndroid && isSupportVoiceCall
-                                                ? showChatOptions(widget.id)
-                                                : onPressedTextChat(widget.id),
-                                      ))
+    return BottomAppBar(
+      elevation: 10,
+      color: MyTheme.accent,
+      child: Row(
+        mainAxisSize: MainAxisSize.max,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: <Widget>[
+          Row(
+              children: <Widget>[
+                    IconButton(
+                      color: Colors.white,
+                      icon: Icon(Icons.clear),
+                      onPressed: () {
+                        clientClose(sessionId, gFFI);
+                      },
+                    ),
+                    IconButton(
+                      color: Colors.white,
+                      icon: Icon(Icons.tv),
+                      onPressed: () {
+                        setState(() => _showEdit = false);
+                        showOptions(context, widget.id, gFFI.dialogManager);
+                      },
+                    )
+                  ] +
+                  (isWebDesktop || ffiModel.viewOnly || !ffiModel.keyboard
+                      ? []
+                      : gFFI.ffiModel.isPeerAndroid
+                          ? [
+                              IconButton(
+                                  color: Colors.white,
+                                  icon: Icon(Icons.keyboard),
+                                  onPressed: openKeyboard),
+                              IconButton(
+                                color: Colors.white,
+                                icon: const Icon(Icons.build),
+                                onPressed: () => gFFI.dialogManager
+                                    .toggleMobileActionsOverlay(ffi: gFFI),
+                              )
+                            ]
+                          : [
+                              IconButton(
+                                  color: Colors.white,
+                                  icon: Icon(Icons.keyboard),
+                                  onPressed: openKeyboard),
+                              IconButton(
+                                color: Colors.white,
+                                icon: Icon(gFFI.ffiModel.touchMode
+                                    ? Icons.touch_app
+                                    : Icons.mouse),
+                                onPressed: () => setState(
+                                    () => _showGestureHelp = !_showGestureHelp),
+                              ),
                             ]) +
-                      [
-                        IconButton(
-                          color: Colors.white,
-                          icon: Icon(Icons.more_vert),
-                          onPressed: () {
-                            setState(() => _showEdit = false);
-                            showActions(widget.id);
-                          },
-                        ),
-                        Obx(() => IconButton(
-                              color: Colors.white,
-                              icon: Icon(Icons.expand_more),
-                              onPressed: gFFI.ffiModel.waitForFirstImage.isTrue
-                                  ? null
-                                  : () {
-                                      setState(() => _showBar = !_showBar);
-                                    },
-                            )),
-                      ]),
-            ],
-          ),
-        ),
+                  (isWeb
+                      ? []
+                      : <Widget>[
+                          futureBuilder(
+                              future: gFFI.invokeMethod(
+                                  "get_value", "KEY_IS_SUPPORT_VOICE_CALL"),
+                              hasData: (isSupportVoiceCall) => IconButton(
+                                    color: Colors.white,
+                                    icon: isAndroid && isSupportVoiceCall
+                                        ? SvgPicture.asset('assets/chat.svg',
+                                            colorFilter: ColorFilter.mode(
+                                                Colors.white, BlendMode.srcIn))
+                                        : Icon(Icons.message),
+                                    onPressed: () =>
+                                        isAndroid && isSupportVoiceCall
+                                            ? showChatOptions(widget.id)
+                                            : onPressedTextChat(widget.id),
+                                  ))
+                        ]) +
+                  [
+                    IconButton(
+                      color: Colors.white,
+                      icon: Icon(Icons.more_vert),
+                      onPressed: () {
+                        setState(() => _showEdit = false);
+                        showActions(widget.id);
+                      },
+                    ),
+                  ]),
+          Obx(() => IconButton(
+                color: Colors.white,
+                icon: Icon(Icons.expand_more),
+                onPressed: gFFI.ffiModel.waitForFirstImage.isTrue
+                    ? null
+                    : () {
+                        setState(() => _showBar = !_showBar);
+                      },
+              )),
+        ],
       ),
     );
   }

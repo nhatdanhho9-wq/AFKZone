@@ -191,8 +191,28 @@ void runMobileApp() async {
   // Auto-apply server configs from license
   await _applyLicenseServerConfigs();
   
+  // DNS Prefetch - resolve DNS in background to reduce first connection delay
+  _prefetchDNS();
+  
   runApp(App());
   await initUniLinks();
+}
+
+/// Prefetch DNS for common servers to reduce first connection delay
+void _prefetchDNS() {
+  // Run in background, don't await - this is just optimization
+  Future(() async {
+    try {
+      await Future.wait([
+        InternetAddress.lookup('id.afkzone.cloud'),
+        InternetAddress.lookup('api.afkzone.cloud'),
+      ]).timeout(Duration(seconds: 5));
+      print('✅ DNS prefetch completed');
+    } catch (e) {
+      // Not critical - just log and continue
+      print('⚠️ DNS prefetch skipped: $e');
+    }
+  });
 }
 
 Future<void> _applyLicenseServerConfigs() async {

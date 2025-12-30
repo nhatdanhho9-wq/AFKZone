@@ -106,6 +106,10 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   int? _licenseMaxDevices;
   bool _licenseLoading = true;
   bool _logoutLoading = false;
+  
+  // Developer mode - tap version 7 times to unlock ID/Relay Server settings
+  int _versionTapCount = 0;
+  bool _developerModeEnabled = false;
 
   _SettingsState() {
     _enableAbr = option2bool(
@@ -876,11 +880,13 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
           ],
         ),
         SettingsSection(title: Text(translate("Settings")), tiles: [
-          // ID/Relay Server settings - restored from v2.0.5
-          if (!disabledSettings && !_hideNetwork && !_hideServer)
+          // ID/Relay Server settings - hidden by default, show only in developer mode
+          // Tap Version 7 times to enable developer mode
+          if (_developerModeEnabled && !disabledSettings && !_hideNetwork && !_hideServer)
             SettingsTile(
                 title: Text(translate('ID/Relay Server')),
-                leading: Icon(Icons.cloud),
+                description: Text('Developer Mode', style: TextStyle(color: Colors.orange, fontSize: 10)),
+                leading: Icon(Icons.cloud, color: Colors.orange),
                 onPressed: (context) {
                   showServerSettings(gFFI.dialogManager, (callback) async {
                     _isUsingPublicServer = await bind.mainIsUsingPublicServer();
@@ -1100,7 +1106,31 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
           tiles: [
             SettingsTile(
                 title: Text(translate("Version: ") + version),
-                leading: Icon(Icons.info)),
+                leading: Icon(Icons.info),
+                // Tap 7 times to enable developer mode (show ID/Relay Server)
+                onPressed: (context) {
+                  _versionTapCount++;
+                  if (_versionTapCount >= 7) {
+                    setState(() {
+                      _developerModeEnabled = true;
+                      _versionTapCount = 0;
+                    });
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Developer mode enabled! ID/Relay Server is now visible.'),
+                        backgroundColor: Colors.green,
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  } else if (_versionTapCount >= 4) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('${7 - _versionTapCount} more taps to enable developer mode'),
+                        duration: Duration(milliseconds: 500),
+                      ),
+                    );
+                  }
+                }),
             SettingsTile(
                 title: Text(translate("Build Date")),
                 value: Padding(
