@@ -102,7 +102,10 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   String? _licenseKey;
   String? _licenseTier;
   String? _licenseExpiresAt;
+  int? _licenseDeviceCount;
+  int? _licenseMaxDevices;
   bool _licenseLoading = true;
+  bool _logoutLoading = false;
 
   _SettingsState() {
     _enableAbr = option2bool(
@@ -280,14 +283,22 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
         final deviceId = await LicenseService.getDeviceFingerprint();
         final result = await LicenseService.checkLicense(licenseKey, deviceId);
         
+        // Get license info including device count
+        final licenseInfo = await LicenseService.getLicenseInfo(licenseKey);
+        
         setState(() {
           _licenseKey = licenseKey;
           if (result != null) {
             _licenseTier = result['tier']?.toString();
+            _licenseMaxDevices = result['max_devices'] as int?;
             if (expiresAt != null) {
               final date = DateTime.fromMillisecondsSinceEpoch(expiresAt);
               _licenseExpiresAt = '${date.day}/${date.month}/${date.year}';
             }
+          }
+          if (licenseInfo != null) {
+            _licenseDeviceCount = licenseInfo['device_count'] as int?;
+            _licenseMaxDevices = licenseInfo['max_devices'] as int?;
           }
           _licenseLoading = false;
         });
@@ -305,12 +316,43 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   }
 
   Future<void> _logoutLicense() async {
+    if (_logoutLoading) return;
+    
+    // Show confirmation dialog
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Xác nhận đăng xuất'),
+        content: Text('Bạn có chắc chắn muốn đăng xuất license?\n\nThiết bị này sẽ bị xóa khỏi danh sách thiết bị đã kích hoạt và bạn sẽ phải nhập lại license key để sử dụng.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text('Hủy'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: Text('Đăng xuất'),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirm != true) return;
+    
+    setState(() {
+      _logoutLoading = true;
+    });
+    
     try {
       final prefs = await SharedPreferences.getInstance();
+      final licenseKey = prefs.getString('license_key');
       final deviceId = await LicenseService.getDeviceFingerprint();
       
-      // Call API to remove device (optional - can just clear local storage)
-      // The device will be removed from license_devices table on next check
+      // Call API to remove device from database
+      if (licenseKey != null) {
+        await LicenseService.logoutDevice(licenseKey, deviceId);
+      }
       
       // Clear local license data
       await prefs.remove('license_key');
@@ -322,19 +364,40 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
       await prefs.remove('api_server');
       await prefs.remove('public_key');
       
+      // Clear server settings
+      await bind.mainSetOption(key: 'custom-rendezvous-server', value: '');
+      await bind.mainSetOption(key: 'relay-server', value: '');
+      await bind.mainSetOption(key: 'api-server', value: '');
+      await bind.mainSetOption(key: 'key', value: '');
+      
       setState(() {
         _licenseKey = null;
         _licenseTier = null;
         _licenseExpiresAt = null;
+        _licenseDeviceCount = null;
+        _licenseMaxDevices = null;
+        _logoutLoading = false;
       });
       
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Đã đăng xuất license thành công')),
+        SnackBar(
+          content: Text('Đã đăng xuất license thành công'),
+          backgroundColor: Colors.green,
+        ),
       );
+      
+      // Navigate back to license activation screen
+      Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
     } catch (e) {
       print('Error logging out license: $e');
+      setState(() {
+        _logoutLoading = false;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Lỗi khi đăng xuất: ${e.toString()}')),
+        SnackBar(
+          content: Text('Lỗi khi đăng xuất: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
       );
     }
   }
@@ -740,9 +803,13 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             if (_licenseLoading)
               SettingsTile(
                 title: Text('Đang tải...'),
-                leading: CircularProgressIndicator(),
+                leading: SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
               )
-            else if (_licenseKey != null)
+            else if (_licenseKey != null) ...[
               SettingsTile(
                 title: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -758,9 +825,21 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                       SizedBox(height: 4),
                       Text('Hết hạn: $_licenseExpiresAt', style: TextStyle(fontSize: 12)),
                     ],
+                    // Device count info
+                    SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Icon(Icons.devices, size: 16, color: Colors.grey),
+                        SizedBox(width: 4),
+                        Text(
+                          'Thiết bị: ${_licenseDeviceCount ?? '...'} / ${_licenseMaxDevices == -1 ? 'Không giới hạn' : (_licenseMaxDevices?.toString() ?? '...')}',
+                          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
-                leading: Icon(Icons.vpn_key),
+                leading: Icon(Icons.vpn_key, color: Colors.green),
                 trailing: IconButton(
                   icon: Icon(Icons.copy),
                   onPressed: () async {
@@ -772,11 +851,27 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                     }
                   },
                 ),
-              )
-            else
+              ),
+              // Logout button
+              SettingsTile(
+                title: Text(
+                  'Đăng xuất License',
+                  style: TextStyle(color: Colors.red),
+                ),
+                description: Text('Xóa thiết bị này khỏi license'),
+                leading: _logoutLoading 
+                  ? SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.red),
+                    )
+                  : Icon(Icons.logout, color: Colors.red),
+                onPressed: _logoutLoading ? null : (context) => _logoutLicense(),
+              ),
+            ] else
               SettingsTile(
                 title: Text('Chưa có license'),
-                leading: Icon(Icons.warning),
+                leading: Icon(Icons.warning, color: Colors.orange),
               ),
           ],
         ),

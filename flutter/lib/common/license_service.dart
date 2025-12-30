@@ -178,4 +178,51 @@ class LicenseService {
       rethrow;
     }
   }
+
+  // Logout - remove device from license
+  static Future<bool> logoutDevice(String licenseKey, String deviceId) async {
+    try {
+      print('🔄 logoutDevice: licenseKey=$licenseKey, deviceId=$deviceId');
+      final response = await http.post(
+        Uri.parse('$API_URL/license/logout'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'license_key': licenseKey,
+          'device_id': deviceId,
+        }),
+      ).timeout(Duration(seconds: 10));
+
+      print('🔄 logoutDevice: statusCode=${response.statusCode}, body=${response.body}');
+
+      if (response.statusCode == 200) {
+        print('✅ Device logged out successfully');
+        return true;
+      } else {
+        print('❌ Logout failed: ${response.body}');
+        return false;
+      }
+    } catch (e) {
+      print('❌ Error logging out device: $e');
+      return false;
+    }
+  }
+
+  // Get license info including device count
+  static Future<Map<String, dynamic>?> getLicenseInfo(String licenseKey) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$API_URL/license/info?license_key=$licenseKey'),
+        headers: {'Content-Type': 'application/json'},
+      ).timeout(Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        return null;
+      }
+    } catch (e) {
+      print('Error getting license info: $e');
+      return null;
+    }
+  }
 }
