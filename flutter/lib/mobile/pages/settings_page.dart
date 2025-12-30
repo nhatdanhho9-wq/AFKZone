@@ -876,6 +876,17 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
           ],
         ),
         SettingsSection(title: Text(translate("Settings")), tiles: [
+          // ID/Relay Server settings - restored from v2.0.5
+          if (!disabledSettings && !_hideNetwork && !_hideServer)
+            SettingsTile(
+                title: Text(translate('ID/Relay Server')),
+                leading: Icon(Icons.cloud),
+                onPressed: (context) {
+                  showServerSettings(gFFI.dialogManager, (callback) async {
+                    _isUsingPublicServer = await bind.mainIsUsingPublicServer();
+                    setState(callback);
+                  });
+                }),
           if (!_hideNetwork && !_hideProxy)
             SettingsTile(
                 title: Text(translate('Socks5/Http(s) Proxy')),
