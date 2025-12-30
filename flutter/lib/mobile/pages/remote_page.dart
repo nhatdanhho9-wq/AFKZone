@@ -398,10 +398,8 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
                       onTap: () {
                         final text = _sendTextController.text;
                         if (text.isNotEmpty) {
-                          // Send each character
-                          for (var char in text.characters) {
-                            inputModel.inputKey(char);
-                          }
+                          // Send entire string at once for better performance
+                          bind.sessionInputString(sessionId: sessionId, value: text);
                           _sendTextController.clear();
                         }
                       },
@@ -505,16 +503,23 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
         inputModel.inputKey('VK_BACK');
         break;
       case 'Enter':
-        inputModel.inputKey('VK_RETURN');
+        inputChar('\n'); // Use inputChar for proper handling
         break;
       case '⇧':
         setState(() => _shiftPressed = !_shiftPressed);
         break;
       case 'Ctrl':
-        inputModel.inputKey('VK_CONTROL');
+        inputModel.inputKey('VK_CONTROL', down: true);
+        // Auto release after short delay
+        Future.delayed(Duration(milliseconds: 100), () {
+          inputModel.inputKey('VK_CONTROL', down: false);
+        });
         break;
       case 'Alt':
-        inputModel.inputKey('VK_MENU');
+        inputModel.inputKey('VK_MENU', down: true);
+        Future.delayed(Duration(milliseconds: 100), () {
+          inputModel.inputKey('VK_MENU', down: false);
+        });
         break;
       case 'Tab':
         inputModel.inputKey('VK_TAB');
@@ -523,12 +528,12 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
         inputModel.inputKey('VK_ESCAPE');
         break;
       case 'Space':
-        inputModel.inputKey(' ');
+        inputChar(' '); // Use inputChar for space
         break;
       default:
-        // Regular character
+        // Regular character - use inputChar for proper handling
         String char = _shiftPressed ? key.toUpperCase() : key;
-        inputModel.inputKey(char);
+        inputChar(char);
         if (_shiftPressed) {
           setState(() => _shiftPressed = false);
         }
