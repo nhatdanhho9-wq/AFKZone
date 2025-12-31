@@ -1462,6 +1462,16 @@ async def casso_webhook_handler(request: Request, db: Session = Depends(get_db))
         if request.method == "GET":
             return {"status": "webhook active", "message": "Use POST to send payment data"}
         
+        # Verify Signature
+        signature = request.headers.get("secure-token")
+        if not signature:
+            logging.warning("Webhook missing secure-token header")
+            raise HTTPException(status_code=401, detail="Missing signature")
+        
+        if signature != CASSO_WEBHOOK_TOKEN:
+            logging.warning(f"Invalid webhook signature: {signature}")
+            raise HTTPException(status_code=401, detail="Invalid signature")
+        
         body = await request.json()
         logging.info(f"Webhook body: {body}")
         
