@@ -150,7 +150,9 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
   void _showSuccessDialog(String licenseKey) async {
     // Save license info to SharedPreferences
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('afk_license_key', licenseKey);
+    
+    // IMPORTANT: Save as 'license_key' to match LicenseWrapper expectations
+    await prefs.setString('license_key', licenseKey);
     await prefs.setString('afk_license_tier', widget.tier);
     await prefs.setInt('afk_license_duration', widget.durationDays);
     await prefs.setInt('afk_license_purchased_at', DateTime.now().millisecondsSinceEpoch);
@@ -160,13 +162,37 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
     int? maxDevices;
     try {
       final deviceId = await LicenseService.getDeviceFingerprint();
+      
+      // Also save device_id to match LicenseWrapper
+      await prefs.setString('device_id', deviceId);
+      
       final result = await LicenseService.activateLicense(licenseKey, deviceId);
       if (result != null) {
         await prefs.setBool('afk_license_active', true);
-        expiresAt = result['expires_at'];
-        maxDevices = result['max_devices'] ?? 1;
-        await prefs.setInt('afk_license_expires_at', expiresAt ?? 0);
+        
+        // Handle max_devices - API now returns max_devices, fallback to device_limit
+        maxDevices = result['max_devices'] ?? result['device_limit'] ?? 1;
         await prefs.setInt('afk_max_devices', maxDevices ?? 1);
+        
+        // Handle expires_at - could be ISO string or int
+        final expiresRaw = result['expires_at'];
+        if (expiresRaw != null) {
+          if (expiresRaw is String) {
+            // Parse ISO string to milliseconds
+            try {
+              final dateTime = DateTime.parse(expiresRaw);
+              expiresAt = dateTime.millisecondsSinceEpoch;
+            } catch (e) {
+              print('Error parsing expires_at: $e');
+            }
+          } else if (expiresRaw is int) {
+            expiresAt = expiresRaw;
+          }
+          
+          if (expiresAt != null) {
+            await prefs.setInt('afk_license_expires_at', expiresAt);
+          }
+        }
       }
     } catch (e) {
       print('Auto-activation error: $e');
