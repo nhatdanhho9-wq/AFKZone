@@ -47,18 +47,18 @@ class ProductService {
 
   static Future<Map<String, List<Product>>> fetchProductsByTier() async {
     final products = await fetchProducts();
-    final Map<String, List<Product>> productsByTier = {
-      'basic': [],
-      'pro': [],
-      'enterprise': [],
-    };
+    // Group products by tier DYNAMICALLY instead of hardcoding
+    final Map<String, List<Product>> productsByTier = {};
 
     for (var product in products) {
-      if (productsByTier.containsKey(product.tier)) {
-        productsByTier[product.tier]!.add(product);
+      final tier = product.tier;
+      if (!productsByTier.containsKey(tier)) {
+        productsByTier[tier] = [];
       }
+      productsByTier[tier]!.add(product);
     }
-
+    
+    print('📦 Grouped products into ${productsByTier.keys.length} tiers: ${productsByTier.keys.join(", ")}');
     return productsByTier;
   }
 
