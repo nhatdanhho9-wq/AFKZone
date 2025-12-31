@@ -18,6 +18,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
   bool _isLoading = true;
   String? _error;
   Map<String, List<Product>> _productsByTier = {};
+  Map<String, String> _tierNames = {}; // tier key -> tier display name
 
   @override
   void initState() {
@@ -34,21 +35,19 @@ class _PaymentScreenState extends State<PaymentScreen> {
     }
     
     try {
-      print('🔄 PaymentScreen: Loading products from API...');
+      print('🔄 PaymentScreen: Loading products and tiers from API...');
+      
+      // Load products
       final products = await ProductService.fetchProductsByTier();
       print('✅ PaymentScreen: Loaded ${products.length} tiers');
       
-      // Debug: Log all products to verify prices
-      print('📦 Products loaded by tier:');
-      products.forEach((tier, productList) {
-        print('  $tier:');
-        for (var p in productList) {
-          print('    - ${p.durationDays} ngày: price=${p.price}, displayPrice=${p.displayPrice}');
-        }
-      });
+      // Load tier names from /tiers API
+      final tierNames = await ProductService.fetchTierNames();
+      print('✅ PaymentScreen: Loaded tier names: $tierNames');
       
       setState(() {
         _productsByTier = products;
+        _tierNames = tierNames;
         _isLoading = false;
         _error = null;
       });
@@ -142,24 +141,36 @@ class _PaymentScreenState extends State<PaymentScreen> {
                         ],
                       ),
                       SizedBox(height: 24),
-                      if (_productsByTier['basic']?.isNotEmpty ?? false)
-                        _buildTierSection(_productsByTier['basic']!.first, Colors.blue, _productsByTier['basic']!),
-                      SizedBox(height: 16),
-                      if (_productsByTier['pro']?.isNotEmpty ?? false)
-                        _buildTierSection(_productsByTier['pro']!.first, Colors.purple, _productsByTier['pro']!),
-                      SizedBox(height: 16),
-                      if (_productsByTier['enterprise']?.isNotEmpty ?? false)
-                        _buildTierSection(_productsByTier['enterprise']!.first, Colors.orange, _productsByTier['enterprise']!),
+                      // Dynamically render all tiers from API
+                      ..._productsByTier.entries.map((entry) {
+                        final tierKey = entry.key;
+                        final products = entry.value;
+                        if (products.isEmpty) return SizedBox.shrink();
+                        
+                        // Get tier name from API, fallback to product name or tier key
+                        final tierName = _tierNames[tierKey] ?? products.first.name;
+                        
+                        // Choose color based on tier key
+                        Color color;
+                        switch (tierKey.toLowerCase()) {
+                          case 'basic': color = Colors.purple; break;
+                          case 'pro': color = Colors.orange; break;
+                          case 'enterprise': color = Colors.red; break;
+                          default: color = Colors.blueGrey;
+                        }
+                        
+                        return Padding(
+                          padding: EdgeInsets.only(bottom: 16),
+                          child: _buildTierSection(tierName, color, products),
+                        );
+                      }).toList(),
                     ],
                   ),
                 ),
     );
   }
 
-  Widget _buildTierSection(Product firstProduct, Color color, List<Product> products) {
-    // Use product name from API, fallback to tier if name is empty
-    final tierName = firstProduct.name.isNotEmpty ? firstProduct.name : firstProduct.tierDisplayName;
-    
+  Widget _buildTierSection(String tierName, Color color, List<Product> products) {
     return Card(
       elevation: 4,
       child: Padding(
@@ -171,12 +182,12 @@ class _PaymentScreenState extends State<PaymentScreen> {
               children: [
                 Icon(Icons.star, color: color),
                 SizedBox(width: 8),
-                Text(tierName, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
-                Spacer(),
-                Text(firstProduct.maxDevicesDisplay, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                Expanded(
+                  child: Text(tierName, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
+                ),
               ],
             ),
-            if (products.first.description != null) ...[
+            if (products.first.description != null && products.first.description!.isNotEmpty) ...[
               SizedBox(height: 8),
               Text(products.first.description!, style: TextStyle(fontSize: 12, color: Colors.grey[700])),
             ],
@@ -232,7 +243,12 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('${product.durationDays} ngày', style: TextStyle(fontSize: 18, color: Colors.white)),
+                      Expanded(
+                        child: Text(
+                          '${product.durationDays} ngày - ${product.maxDevices == -1 ? "Không giới hạn thiết bị" : "${product.maxDevices} thiết bị"}',
+                          style: TextStyle(fontSize: 16, color: Colors.white),
+                        ),
+                      ),
                       Text(product.formattedPrice, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
                     ],
                   ),

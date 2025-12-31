@@ -781,33 +781,36 @@ class _LicensePageState extends State<LicensePage> {
   }
 
   List<Widget> _buildPricingRowsFromAPI() {
-    // Group products by tier and show one product per tier (prefer 30 days)
-    // IMPORTANT: Filter out 7-day paid products - only show 7-day free (price=0)
-    final Map<String, Product> tierProducts = {};
+    // Show all products grouped by tier (sorted by duration)
+    // Format: "Tier Name (X thiết bị)" - "Y ngày: Z đồng"
     
-    for (var product in _products) {
-      // Skip 7-day paid products (only show free 7-day in trial section)
-      if (product.durationDays == 7 && product.price > 0) {
+    final List<Widget> rows = [];
+    String currentTier = '';
+    
+    // Sort products by tier, then by duration
+    final sortedProducts = List<Product>.from(_products)
+      ..sort((a, b) {
+        final tierCompare = a.tier.compareTo(b.tier);
+        if (tierCompare != 0) return tierCompare;
+        return a.durationDays.compareTo(b.durationDays);
+      });
+    
+    for (var product in sortedProducts) {
+      // Skip 7-day free trial products (already shown in trial section)
+      if (product.durationDays == 7 && product.price == 0) {
         continue;
       }
       
-      if (!tierProducts.containsKey(product.tier)) {
-        tierProducts[product.tier] = product;
-      } else {
-        // Prefer 30 days, then any other duration
-        final current = tierProducts[product.tier]!;
-        if (current.durationDays != 30 && product.durationDays == 30) {
-          tierProducts[product.tier] = product;
-        }
-      }
-    }
-
-    return tierProducts.values.map((product) {
-      final tierName = product.name.isNotEmpty ? product.name : product.tierDisplayName;
-      final tierLabel = '$tierName (${product.maxDevicesDisplay})';
+      // Build tier label: "Product Name (X thiết bị)"
+      final tierLabel = '${product.name.isNotEmpty ? product.name : product.tierDisplayName} (${product.maxDevicesDisplay})';
+      
+      // Build price label: "Y ngày: Z đồng"
       final priceLabel = '${product.durationDays} ngày: ${product.displayPrice}';
-      return _buildPricingRow(tierLabel, priceLabel);
-    }).toList();
+      
+      rows.add(_buildPricingRow(tierLabel, priceLabel));
+    }
+    
+    return rows;
   }
 
   Widget _buildPricingRow(String tier, String price) {

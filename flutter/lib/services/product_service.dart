@@ -74,5 +74,38 @@ class ProductService {
       return null;
     }
   }
+
+  /// Fetch tier names from /tiers API
+  /// Returns: Map<tier_key, tier_name>
+  static Future<Map<String, String>> fetchTierNames() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$API_URL/tiers'),
+        headers: {'Cache-Control': 'no-cache'},
+      ).timeout(Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(utf8.decode(response.bodyBytes));
+        final List<dynamic> tiersJson = data['tiers'] ?? data ?? [];
+        
+        final Map<String, String> tierNames = {};
+        for (var tier in tiersJson) {
+          if (tier['is_active'] == true) {
+            // tier_key -> name (use name field from API)
+            tierNames[tier['tier_key']] = tier['name'] ?? tier['tier_key'];
+          }
+        }
+        
+        print('📋 Loaded tier names: $tierNames');
+        return tierNames;
+      } else {
+        print('⚠️ Failed to load tiers: ${response.statusCode}');
+        return {};
+      }
+    } catch (e) {
+      print('❌ Error fetching tier names: $e');
+      return {};
+    }
+  }
 }
 
