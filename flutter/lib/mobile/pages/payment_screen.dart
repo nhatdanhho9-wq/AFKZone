@@ -147,8 +147,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
                         final products = entry.value;
                         if (products.isEmpty) return SizedBox.shrink();
                         
-                        // Get tier name from API, fallback to product name or tier key
-                        final tierName = _tierNames[tierKey] ?? products.first.name;
+                        // Get tier name from API, fallback to tier key (NOT product name)
+                        final tierName = _tierNames[tierKey] ?? tierKey.toUpperCase();
                         
                         // Choose color based on tier key
                         Color color;
@@ -156,6 +156,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
                           case 'basic': color = Colors.purple; break;
                           case 'pro': color = Colors.orange; break;
                           case 'enterprise': color = Colors.red; break;
+                          case 'promax': color = Colors.blue; break;
+                          case 'supervvip': color = Colors.amber; break;
                           default: color = Colors.blueGrey;
                         }
                         
