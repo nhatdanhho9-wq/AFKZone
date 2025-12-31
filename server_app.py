@@ -62,10 +62,10 @@ SERVER_CONFIGS = {
 DEVICE_LIMITS = {"basic": 2, "pro": 5, "enterprise": -1}
 
 ZALOPAY_CONFIG = {
-    "app_id": int(os.getenv("ZALOPAY_APP_ID", "2553")),
-    "key1": os.getenv("ZALOPAY_KEY1", "PcY4iZIKFCIdgZvA6ueMcMHHUbRLYjPL"),
-    "key2": os.getenv("ZALOPAY_KEY2", "kLtgPl8HHhfvMuDHPwKfgfsY4Ydm9eIz"),
-    "endpoint": os.getenv("ZALOPAY_ENDPOINT", "https://sb-openapi.zalopay.vn/v2/create")
+    "app_id": int(require_env("ZALOPAY_APP_ID")),
+    "key1": require_env("ZALOPAY_KEY1"),
+    "key2": require_env("ZALOPAY_KEY2"),
+    "endpoint": require_env("ZALOPAY_ENDPOINT")
 }
 
 class ActivateRequest(BaseModel):
@@ -356,10 +356,11 @@ def health(db: Session = Depends(get_db)):
         return {"status": "unhealthy", "database": "disconnected"}
 
 # Bank Transfer Configuration
+# Bank Transfer Configuration
 BANK_CONFIG = {
     "bank_id": "970422",
-    "account_no": os.getenv("MB_BANK_ACCOUNT", "0823333374"),
-    "account_name": os.getenv("MB_BANK_NAME", "HO NHAT DANH"),
+    "account_no": require_env("MB_BANK_ACCOUNT"),
+    "account_name": require_env("MB_BANK_NAME"),
     "casso_token": CASSO_WEBHOOK_TOKEN
 }
 
@@ -429,13 +430,13 @@ async def bank_webhook(request: Request, db: Session = Depends(get_db)):
         print(f"Match: {signature == expected_signature}")
         
         # Verify signature in strict mode
-        if signature and signature != expected_signature:
-            print(f"❌ Signature mismatch! Rejecting webhook.")
-            return {"error": "Invalid signature", "return_code": -1}
-        
-        # Allow requests without signature for testing (non-strict mode)
         if not signature:
-            print(f"⚠️ No signature provided, accepting for testing...")
+            print(f"❌ Missing signature! Rejecting webhook.")
+            return JSONResponse(status_code=401, content={"error": "Missing signature"})
+
+        if signature != expected_signature:
+            print(f"❌ Signature mismatch! Rejecting webhook.")
+            return JSONResponse(status_code=401, content={"error": "Invalid signature"})
         
         # Parse body
         data = json.loads(body_str)
