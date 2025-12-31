@@ -55,3 +55,10 @@ vcpkg_installed
 flutter/lib/generated_plugin_registrant.dart
 libsciter.dylib
 flutter/web/
+
+# Security - Phase 1
+*.jks
+keystore_base64.txt
+.env
+*.pem
+*.key
