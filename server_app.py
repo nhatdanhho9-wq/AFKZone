@@ -231,7 +231,7 @@ def check_license(req: ActivateRequest, db: Session = Depends(get_db)):
 
 @app.post("/generate")
 def generate_licenses(req: GenerateRequest, admin_key: str = Header(None), db: Session = Depends(get_db)):
-    if admin_key != "afkzone-admin-2025":
+    if admin_key != os.getenv("ADMIN_KEY", "afkzone-admin-2025"):
         raise HTTPException(status_code=401, detail="Unauthorized")
     if req.tier not in DEVICE_LIMITS or req.duration_days not in [7, 30, 60, 90, 180, 365]:
         raise HTTPException(status_code=400, detail="Invalid tier or duration")
@@ -521,7 +521,7 @@ from database import get_db
 
 # ==================== ADMIN AUTH ====================
 
-SECRET_KEY = "afkzone-admin-secret-key-2025-change-this-in-production"
+SECRET_KEY = os.getenv("JWT_SECRET", "afkzone-admin-secret-key-2025-change-this-in-production")
 ALGORITHM = "HS256"
 security = HTTPBearer()
 
