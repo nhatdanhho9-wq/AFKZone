@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_hbb/common/license_service.dart';
+import 'package:flutter_hbb/native/ffi.dart' show bind;
 import 'license_page.dart' as afk;
 import 'dart:async';
 
@@ -87,14 +88,31 @@ class LicenseWrapperState extends State<LicenseWrapper> {
     });
   }
 
+  /// AFK Zone default server configuration
+  static const String AFK_DEFAULT_ID_SERVER = 'id.afkzone.cloud';
+  static const String AFK_DEFAULT_RELAY_SERVER = 'id.afkzone.cloud';
+  static const String AFK_DEFAULT_KEY = 'EXOW136uTrC0PYYrkavoJH7SjkFlzPjB+vzzpvjsybw=';
+
   Future<void> _updateServerConfigs(Map<String, dynamic> config) async {
     final prefs = await SharedPreferences.getInstance();
 
-    // Store server configs
-    await prefs.setString('id_server', config['id_server'] ?? '');
-    await prefs.setString('relay_server', config['relay_server'] ?? '');
-    await prefs.setString('public_key', config['public_key'] ?? '');
+    // Get server configs from license or use defaults
+    String idServer = config['id_server'] ?? AFK_DEFAULT_ID_SERVER;
+    String relayServer = config['relay_server'] ?? AFK_DEFAULT_RELAY_SERVER;
+    String publicKey = config['public_key'] ?? AFK_DEFAULT_KEY;
+
+    // Store to SharedPreferences
+    await prefs.setString('id_server', idServer);
+    await prefs.setString('relay_server', relayServer);
+    await prefs.setString('public_key', publicKey);
     await prefs.setString('api_server', config['api_server'] ?? '');
+
+    // IMPORTANT: Apply server configs to RustDesk native layer
+    print('🔄 Applying server configs via bind.mainSetOption...');
+    await bind.mainSetOption(key: 'custom-rendezvous-server', value: idServer);
+    await bind.mainSetOption(key: 'relay-server', value: relayServer);
+    await bind.mainSetOption(key: 'key', value: publicKey);
+    print('✅ Server configs applied: id=$idServer, relay=$relayServer');
   }
 
   Future<void> onLicenseActivated(Map<String, dynamic> result) async {

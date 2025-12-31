@@ -347,7 +347,10 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
   }
 
   void openKeyboard() {
-    // Use system keyboard instead of custom keyboard
+    // Use system keyboard - set _showEdit and request focus
+    setState(() {
+      _showEdit = true;
+    });
     gFFI.invokeMethod("enable_soft_keyboard", true);
     _mobileFocusNode.requestFocus();
   }
