@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_hbb/common/license_service.dart';
-import 'package:flutter_hbb/native/ffi.dart' show bind;
+import 'package:flutter_hbb/common.dart' show bind;
 import 'license_page.dart' as afk;
 import 'dart:async';
 
