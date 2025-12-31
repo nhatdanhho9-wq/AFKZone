@@ -30,6 +30,8 @@ import 'package:flutter_hbb/plugin/widgets/desc_ui.dart';
 import 'package:flutter_hbb/common/shared_state.dart';
 import 'package:flutter_hbb/utils/multi_window_manager.dart';
 import 'package:flutter_hbb/utils/http_service.dart' as http;
+import 'package:flutter_hbb/common/license_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tuple/tuple.dart';
 import 'package:image/image.dart' as img2;
 import 'package:flutter_svg/flutter_svg.dart';
@@ -287,6 +289,29 @@ class FfiModel with ChangeNotifier {
     _permissions.clear();
   }
 
+  // Log connection to AFK Zone backend for tracking
+  void _logConnectionToBackend(String peerId, String action) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final deviceId = prefs.getString('device_id') ?? '';
+      final licenseKey = prefs.getString('license_key') ?? '';
+      
+      if (deviceId.isEmpty) {
+        print('⚠️ Cannot log connection: device_id not found');
+        return;
+      }
+      
+      await LicenseService.logConnection(
+        deviceId: deviceId,
+        remoteId: peerId,
+        action: action,
+        licenseKey: licenseKey,
+      );
+    } catch (e) {
+      print('⚠️ Error in _logConnectionToBackend: $e');
+    }
+  }
+
   handleCachedPeerData(CachedPeerData data, String peerId) async {
     handleMsgBox({
       'type': 'success',
@@ -326,6 +351,8 @@ class FfiModel with ChangeNotifier {
       } else if (name == 'connection_ready') {
         setConnectionType(peerId, evt['secure'] == 'true',
             evt['direct'] == 'true', evt['stream_type'] ?? '');
+        // Log connection to AFK Zone backend
+        _logConnectionToBackend(peerId, 'connect');
       } else if (name == 'switch_display') {
         // switch display is kept for backward compatibility
         handleSwitchDisplay(evt, sessionId, peerId);

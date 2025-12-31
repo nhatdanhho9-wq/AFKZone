@@ -268,4 +268,37 @@ class LicenseService {
       rethrow;
     }
   }
+
+  // Log connection to backend for tracking
+  static Future<void> logConnection({
+    required String deviceId,
+    required String remoteId,
+    required String action, // 'connect' or 'disconnect'
+    String? licenseKey,
+    String? ipAddress,
+  }) async {
+    try {
+      print('🔄 logConnection: deviceId=$deviceId, remoteId=$remoteId, action=$action');
+      final response = await http.post(
+        Uri.parse('$API_URL/connection/log'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'device_id': deviceId,
+          'remote_id': remoteId,
+          'action': action,
+          'license_key': licenseKey ?? '',
+          'ip_address': ipAddress ?? '',
+        }),
+      ).timeout(Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        print('✅ Connection logged successfully');
+      } else {
+        print('⚠️ Connection log failed: ${response.statusCode}');
+      }
+    } catch (e) {
+      // Don't throw - connection logging is non-critical
+      print('⚠️ Error logging connection (non-critical): $e');
+    }
+  }
 }
