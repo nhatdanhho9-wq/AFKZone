@@ -1,0 +1,2378 @@
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Header, Depends, Request
+from fastapi.middleware.cors import CORSMiddleware
+
+# Tier to max_devices mapping
+TIER_MAX_DEVICES = {
+    'basic': 2,
+    'pro': 5,
+    'enterprise': -1  # unlimited
+}
+
+def get_max_devices_for_tier(tier: str) -> int:
+    return TIER_MAX_DEVICES.get(tier.lower(), 1)
+from pydantic import BaseModel
+from datetime import datetime, timedelta
+from sqlalchemy.orm import Session
+from sqlalchemy import text
+from typing import Optional, List
+import hashlib
+import secrets
+import hmac
+import time
+import requests
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+import json
+import base64
+from database import get_db
+
+app = FastAPI(title="AFK Zone License API v2.0.6")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+SERVER_CONFIGS = {
+    "id_server": "id.afkzone.cloud",
+    "relay_server": "id.afkzone.cloud",
+    "public_key": "EXOW136uTrC0PYYrkavoJH7SjkFlzPjB+vzzpvjsybw=",
+    "api_server": "https://api.afkzone.cloud"
+}
+
+DEVICE_LIMITS = {"basic": 2, "pro": 5, "enterprise": -1}
+
+ZALOPAY_CONFIG = {
+    "app_id": int(os.getenv("ZALOPAY_APP_ID", "2553")),
+    "key1": os.getenv("ZALOPAY_KEY1", "PcY4iZIKFCIdgZvA6ueMcMHHUbRLYjPL"),
+    "key2": os.getenv("ZALOPAY_KEY2", "kLtgPl8HHhfvMuDHPwKfgfsY4Ydm9eIz"),
+    "endpoint": os.getenv("ZALOPAY_ENDPOINT", "https://sb-openapi.zalopay.vn/v2/create")
+}
+
+class ActivateRequest(BaseModel):
+    license_key: str
+    device_id: str
+
+class GenerateRequest(BaseModel):
+    tier: str
+    duration_days: int
+    quantity: int = 1
+
+class TrialGenerateRequest(BaseModel):
+    device_fingerprint: str
+    ip_address: Optional[str] = None
+
+class PaymentCreateRequest(BaseModel):
+    tier: str
+    duration_days: int
+    device_id: str
+
+@app.get("/")
+def root():
+    return {"service": "AFK Zone License API", "version": "2.0.6", "contact": "Zalo: 0823333374"}
+
+@app.post("/activate")
+def activate_license(data: dict, db: Session = Depends(get_db)):
+    """Activate license on a device - supports multi-device"""
+    license_key = data.get("license_key")
+    device_id = data.get("device_id")
+    
+    if not license_key or not device_id:
+        raise HTTPException(status_code=400, detail="Missing license_key or device_id")
+    
+    # Check if license exists
+    lic = db.execute(
+        text("SELECT license_key, tier, duration_days, activated_at, expires_at, max_devices, is_revoked FROM licenses WHERE license_key=:key"),
+        {"key": license_key}
+    ).fetchone()
+    
+    if not lic:
+        raise HTTPException(status_code=404, detail="License không hợp lệ")
+    
+    if lic[6]:  # is_revoked
+        raise HTTPException(status_code=403, detail="License đã bị thu hồi")
+    
+    max_devices = lic[5] if lic[5] else 1
+    
+    # Check if device is already activated with this license
+    existing = db.execute(
+        text("SELECT id FROM license_devices WHERE license_key=:key AND device_id=:device"),
+        {"key": license_key, "device": device_id}
+    ).fetchone()
+    
+    if existing:
+        # Device already activated - return success
+        return {
+            "status": "active",
+            "tier": lic[1],
+            "duration_days": lic[2],
+            "expires_at": lic[4].isoformat() if lic[4] else None,
+            "max_devices": max_devices,
+            "message": "Device đã được kích hoạt trước đó"
+        }
+    
+    # Count current activated devices
+    device_count = db.execute(
+        text("SELECT COUNT(*) FROM license_devices WHERE license_key=:key"),
+        {"key": license_key}
+    ).scalar() or 0
+    
+    # Check if max devices reached (skip check if max_devices = -1 = unlimited)
+    if max_devices != -1 and device_count >= max_devices:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"License đã đạt giới hạn {max_devices} thiết bị. Vui lòng xóa thiết bị cũ hoặc nâng cấp gói."
+        )
+    
+    # Activate on this device
+    try:
+        db.execute(
+            text("INSERT INTO license_devices (license_key, device_id, activated_at) VALUES (:key, :device, NOW())"),
+            {"key": license_key, "device": device_id}
+        )
+        
+        # If this is a trial license, also mark device in trial_devices to prevent generating new trials
+        if license_key.startswith('AFK-TRIAL-'):
+            # Check if device already in trial_devices
+            existing_trial = db.execute(
+                text("SELECT id FROM trial_devices WHERE device_fingerprint=:device"),
+                {"device": device_id}
+            ).fetchone()
+            
+            if not existing_trial:
+                # Get IP address from request (if available) or use device_id
+                # Insert into trial_devices to mark this device as having used a trial
+                try:
+                    db.execute(
+                        text("INSERT INTO trial_devices (device_fingerprint, license_key, created_at) VALUES (:device, :key, NOW())"),
+                        {"device": device_id, "key": license_key}
+                    )
+                except Exception as e:
+                    # Ignore duplicate errors, just log
+                    print(f"Warning: Could not insert into trial_devices: {e}")
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to add device: {str(e)}")
+    
+    # Update activated_at if first activation
+    if not lic[3]:  # activated_at is NULL
+        expires_at = datetime.now() + timedelta(days=lic[2])
+        db.execute(
+            text("UPDATE licenses SET activated_at=NOW(), expires_at=:exp WHERE license_key=:key"),
+            {"key": license_key, "exp": expires_at}
+        )
+        db.commit()
+        return {
+            "status": "activated",
+            "tier": lic[1],
+            "duration_days": lic[2],
+            "expires_at": expires_at.isoformat(),
+            "max_devices": max_devices,
+            "device_count": device_count + 1,
+            "message": "Kích hoạt thành công!"
+        }
+    
+    db.commit()
+    return {
+        "status": "activated",
+        "tier": lic[1],
+        "duration_days": lic[2],
+        "expires_at": lic[4].isoformat() if lic[4] else None,
+        "max_devices": max_devices,
+        "device_count": device_count + 1,
+        "message": "Thêm thiết bị thành công!"
+    }
+
+@app.post("/check")
+def check_license(req: ActivateRequest, db: Session = Depends(get_db)):
+    """Check if license is valid for this device"""
+
+    # Use license_devices table
+    r = db.execute(
+        text("""
+            SELECT l.tier, l.expires_at, l.max_devices
+            FROM licenses l
+            JOIN license_devices ld ON l.license_key = ld.license_key
+            WHERE l.license_key=:k AND ld.device_id=:d AND ld.is_active=TRUE
+        """),
+        {"k": req.license_key, "d": req.device_id}
+    ).fetchone()
+
+    if not r:
+        raise HTTPException(404, "License không hợp lệ")
+
+    exp = r[1] if isinstance(r[1], datetime) else datetime.fromisoformat(str(r[1]))
+    if datetime.now() > exp:
+        raise HTTPException(410, "Đã hết hạn")
+
+    # Update last_check
+    db.execute(
+        text("UPDATE license_devices SET last_check=NOW() WHERE license_key=:k AND device_id=:d"),
+        {"k": req.license_key, "d": req.device_id}
+    )
+    db.commit()
+
+    return {
+        "status": "active",
+        "tier": r[0],
+        "expires_at": exp.isoformat(),
+        "device_limit": r[2],
+        **SERVER_CONFIGS
+    }
+
+@app.post("/generate")
+def generate_licenses(req: GenerateRequest, admin_key: str = Header(None), db: Session = Depends(get_db)):
+    if admin_key != "afkzone-admin-2025":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if req.tier not in DEVICE_LIMITS or req.duration_days not in [7, 30, 60, 90, 180, 365]:
+        raise HTTPException(status_code=400, detail="Invalid tier or duration")
+    keys = []
+    for _ in range(req.quantity):
+        key = f"AFK-{secrets.token_hex(8).upper()}"
+        db.execute(text("INSERT INTO licenses (license_key, tier, duration_days, created_at, is_trial) VALUES (:key, :tier, :dur, NOW(), FALSE)"),
+                  {"key": key, "tier": req.tier, "dur": req.duration_days})
+        keys.append(key)
+    db.commit()
+    return {"generated": len(keys), "keys": keys, "tier": req.tier, "duration_days": req.duration_days}
+
+@app.get("/list")
+def list_licenses(admin_key: str = Header(None), db: Session = Depends(get_db)):
+    if admin_key != "afkzone-admin-2025":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    results = db.execute(text("SELECT * FROM licenses ORDER BY created_at DESC LIMIT 100")).fetchall()
+    licenses = [{"license_key": r[1], "tier": r[2], "duration_days": r[3], "activated_at": r[4].isoformat() if r[4] else None,
+                 "expires_at": r[5].isoformat() if r[5] else None, "device_id": r[6], "is_trial": r[11]} for r in results]
+    return {"total": len(licenses), "licenses": licenses}
+
+@app.post("/trial/generate")
+def trial_generate(req: TrialGenerateRequest, request: Request, db: Session = Depends(get_db)):
+    ip = req.ip_address or request.client.host
+    existing = db.execute(text("SELECT * FROM trial_devices WHERE device_fingerprint=:fp"), {"fp": req.device_fingerprint}).fetchone()
+    if existing:
+        raise HTTPException(status_code=403, detail="Bạn đã dùng thử rồi. Liên hệ Zalo: 0823333374")
+    key = f"AFK-TRIAL-{secrets.token_hex(8).upper()}"
+    now = datetime.now()
+    expires = now + timedelta(days=7)
+    db.execute(text("INSERT INTO licenses (license_key, tier, duration_days, activated_at, expires_at, device_fingerprint, created_at, is_trial, last_check) VALUES (:key, 'basic', 7, :now, :exp, :fp, :now, TRUE, :now)"),
+              {"key": key, "now": now, "exp": expires, "fp": req.device_fingerprint})
+    db.execute(text("INSERT INTO trial_devices (device_fingerprint, ip_address, license_key, created_at) VALUES (:fp, :ip, :key, :now)"),
+              {"fp": req.device_fingerprint, "ip": ip, "key": key, "now": now})
+    db.commit()
+    return {"license_key": key, "tier": "basic", "expires_at": expires.isoformat(), "device_limit": 1, "message": "Bạn đã kích hoạt dùng thử 7 ngày", **SERVER_CONFIGS}
+
+@app.post("/trial/check")
+def trial_check(req: TrialGenerateRequest, db: Session = Depends(get_db)):
+    result = db.execute(text("SELECT * FROM trial_devices WHERE device_fingerprint=:fp"), {"fp": req.device_fingerprint}).fetchone()
+    return {"has_trialed": bool(result), "trial_date": result[4].isoformat() if result and result[4] else None}
+
+@app.post("/payment/create")
+def payment_create(req: PaymentCreateRequest, db: Session = Depends(get_db)):
+    price_result = db.execute(text("SELECT price FROM pricing WHERE tier=:tier AND duration_days=:days"),
+                             {"tier": req.tier, "days": req.duration_days}).fetchone()
+    if not price_result:
+        raise HTTPException(status_code=400, detail="Invalid tier or duration")
+    price = price_result[0]
+    trans_id = f"{datetime.now().strftime('%y%m%d')}_{int(time.time())}"
+    order = {
+        "app_id": ZALOPAY_CONFIG["app_id"],
+        "app_trans_id": trans_id,
+        "app_user": req.device_id,
+        "app_time": int(time.time() * 1000),
+        "amount": price,
+        "item": json.dumps([{"itemid":"license","itemname":f"AFK Zone {req.tier} {req.duration_days}d","itemprice":price,"itemquantity":1}]),
+        "embed_data": json.dumps({"tier": req.tier, "duration_days": req.duration_days, "device_id": req.device_id}),
+        "callback_url": "https://api.afkzone.cloud/payment/callback",
+        "description": f"AFK Zone License {req.tier}",
+        "bank_code": ""
+    }
+    data = f"{order['app_id']}|{order['app_trans_id']}|{order['app_user']}|{order['amount']}|{order['app_time']}|{order['embed_data']}|{order['item']}"
+    order["mac"] = hmac.new(ZALOPAY_CONFIG["key1"].encode(), data.encode(), hashlib.sha256).hexdigest()
+    response = requests.post(ZALOPAY_CONFIG["endpoint"], json=order, timeout=10)
+    zp_response = response.json()
+    if zp_response.get("return_code") == 1:
+        db.execute(text("INSERT INTO orders (order_id, device_id, tier, duration_days, amount, zp_trans_token, zp_order_url, payment_status) VALUES (:id, :dev, :tier, :dur, :amt, :token, :url, 'pending')"),
+                  {"id": trans_id, "dev": req.device_id, "tier": req.tier, "dur": req.duration_days, "amt": price, "token": zp_response.get("zp_trans_token"), "url": zp_response.get("order_url")})
+        db.commit()
+        return {"order_id": trans_id, "amount": price, "zp_trans_token": zp_response.get("zp_trans_token"), "order_url": zp_response.get("order_url")}
+    raise HTTPException(status_code=500, detail=f"ZaloPay error: {zp_response.get('return_message')}")
+
+@app.post("/payment/callback")
+async def payment_callback(request: Request, db: Session = Depends(get_db)):
+    try:
+        data = await request.json()
+        mac = hmac.new(ZALOPAY_CONFIG["key2"].encode(), data.get("data", "").encode(), hashlib.sha256).hexdigest()
+        if mac != data.get("mac"):
+            return {"return_code": -1, "return_message": "Invalid signature"}
+        cb_data = json.loads(data.get("data", "{}"))
+        app_trans_id = cb_data.get("app_trans_id")
+        order = db.execute(text("SELECT * FROM orders WHERE order_id=:id"), {"id": app_trans_id}).fetchone()
+        if not order or order[8] == "success":
+            return {"return_code": 1, "return_message": "Already processed"}
+        key = f"AFK-{secrets.token_hex(8).upper()}"
+        now = datetime.now()
+        expires = now + timedelta(days=order[5])
+        db.execute(text("INSERT INTO licenses (license_key, tier, duration_days, activated_at, expires_at, device_id, created_at, is_trial, last_check) VALUES (:key, :tier, :dur, :now, :exp, :dev, :now, FALSE, :now)"),
+                  {"key": key, "tier": order[3], "dur": order[5], "now": now, "exp": expires, "dev": order[2]})
+        db.execute(text("UPDATE orders SET payment_status='success', paid_at=:now, license_key=:key WHERE order_id=:id"),
+                  {"now": now, "key": key, "id": app_trans_id})
+        db.commit()
+        return {"return_code": 1, "return_message": "success"}
+    except Exception as e:
+        return {"return_code": 0, "return_message": str(e)}
+
+@app.get("/version/check")
+def version_check(current: str, db: Session = Depends(get_db)):
+    latest = db.execute(text("SELECT * FROM app_versions WHERE is_latest=TRUE LIMIT 1")).fetchone()
+    if not latest:
+        return {"has_update": False}
+    return {"current_version": current, "latest_version": latest[1], "has_update": current != latest[1],
+            "force_update": latest[6], "download_url": latest[3], "changelog": latest[4]}
+
+@app.get("/health")
+def health(db: Session = Depends(get_db)):
+    try:
+        db.execute(text("SELECT 1"))
+        return {"status": "healthy", "database": "connected"}
+    except:
+        return {"status": "unhealthy", "database": "disconnected"}
+
+# Bank Transfer Configuration
+BANK_CONFIG = {
+    "bank_id": "970422",
+    "account_no": os.getenv("MB_BANK_ACCOUNT", "0823333374"),
+    "account_name": os.getenv("MB_BANK_NAME", "HO NHAT DANH"),
+    "casso_token": os.getenv("CASSO_WEBHOOK_TOKEN", "nJJmwAm0BX43ybO6cszOz2itCCvxUE9M6t4WISqa8k4vl8VcLypqE3O1iAWWFQIB")
+}
+
+class BankTransferRequest(BaseModel):
+    tier: str
+    duration_days: int
+    device_id: str
+
+@app.post("/payment/bank/create")
+def bank_transfer_create(req: BankTransferRequest, db: Session = Depends(get_db)):
+    # First try products table (for admin-created products)
+    price_result = db.execute(text("SELECT price FROM products WHERE tier=:tier AND duration_days=:days AND is_active=TRUE"), {"tier": req.tier, "days": req.duration_days}).fetchone()
+    
+    # Fallback to pricing table
+    if not price_result:
+        price_result = db.execute(text("SELECT price FROM pricing WHERE tier=:tier AND duration_days=:days"), {"tier": req.tier, "days": req.duration_days}).fetchone()
+    
+    if not price_result:
+        raise HTTPException(status_code=400, detail="Invalid tier or duration")
+    price, date_part = price_result[0], datetime.now().strftime("%y%m%d")
+    count = (db.execute(text("SELECT COUNT(*) FROM bank_orders WHERE trans_code LIKE :pattern"), {"pattern": f"AFK{req.tier.upper()}{req.duration_days}{date_part}%"}).fetchone() or (0,))[0]
+    trans_code = f"AFK{req.tier.upper()}{req.duration_days}{date_part}{count+1:03d}"
+    qr_url = f"https://img.vietqr.io/image/{BANK_CONFIG['bank_id']}-{BANK_CONFIG['account_no']}-compact2.png?amount={price}&addInfo={trans_code}&accountName={BANK_CONFIG['account_name']}"
+    db.execute(text("INSERT INTO bank_orders (trans_code,device_id,tier,duration_days,amount,bank_account,qr_url,status,created_at) VALUES (:code,:dev,:tier,:dur,:amt,:acc,:qr,'pending',NOW())"), {"code":trans_code,"dev":req.device_id,"tier":req.tier,"dur":req.duration_days,"amt":price,"acc":BANK_CONFIG['account_no'],"qr":qr_url})
+    db.commit()
+    return {"trans_code":trans_code,"amount":price,"qr_url":qr_url,"bank_info":{"bank_name":"MB Bank","account_no":BANK_CONFIG['account_no'],"account_name":BANK_CONFIG['account_name'],"content":trans_code},"message":f"Chuyển khoản {price:,}đ với nội dung: {trans_code}","expires_in":600}
+
+@app.get("/payment/bank/webhook")
+async def bank_webhook_test():
+    """Test endpoint for Casso webhook verification"""
+    return {"success": True, "message": "Webhook endpoint is ready", "return_code": 1}
+
+@app.post("/payment/bank/webhook")
+async def bank_webhook(request: Request, db: Session = Depends(get_db)):
+    try:
+        # Casso Webhook V2 uses signature instead of token
+        body_bytes = await request.body()
+        body_str = body_bytes.decode('utf-8')
+        
+        # Get signature from header
+        signature_header = request.headers.get("x-casso-signature", "")
+        
+        # Parse signature: t=timestamp,v1=signature
+        sig_parts = {}
+        for part in signature_header.split(","):
+            if "=" in part:
+                k, v = part.split("=", 1)
+                sig_parts[k] = v
+        
+        timestamp = sig_parts.get("t", "")
+        signature = sig_parts.get("v1", "")
+        
+        # Verify signature using webhook secret
+        secret = BANK_CONFIG['casso_token']
+        signed_payload = f"{timestamp}.{body_str}"
+        expected_signature = hmac.new(
+            secret.encode(),
+            signed_payload.encode(),
+            hashlib.sha512
+        ).hexdigest()
+        
+        print(f"=== CASSO WEBHOOK V2 ===")
+        print(f"Body: {body_str[:200]}...")
+        print(f"Timestamp: {timestamp}")
+        print(f"Signature received: {signature[:50]}...")
+        print(f"Signature expected: {expected_signature[:50]}...")
+        print(f"Match: {signature == expected_signature}")
+        
+        # Verify signature in strict mode
+        if signature and signature != expected_signature:
+            print(f"❌ Signature mismatch! Rejecting webhook.")
+            return {"error": "Invalid signature", "return_code": -1}
+        
+        # Allow requests without signature for testing (non-strict mode)
+        if not signature:
+            print(f"⚠️ No signature provided, accepting for testing...")
+        
+        # Parse body
+        data = json.loads(body_str)
+        transactions = data.get("data", [])
+        if not transactions: return {"success":True,"message":"No transactions"}
+        for t in transactions:
+            amount = int(t.get("amount", 0))
+            desc = t.get("description", "").upper()
+            tid = t.get("tid", "")
+            
+            # Try to find trans_code in description
+            trans_code = None
+            if "AFK" in desc:
+                # Extract trans_code from description
+                parts = desc.split()
+                for part in parts:
+                    if part.startswith("AFK"):
+                        trans_code = part
+                        break
+            
+            if not trans_code:
+                print(f"⚠️ No trans_code found in: {desc}")
+                continue
+            
+            # Find order
+            order = db.execute(text("SELECT * FROM bank_orders WHERE trans_code=:code AND status='pending'"), {"code": trans_code}).fetchone()
+            
+            if not order:
+                print(f"⚠️ Order not found or already completed: {trans_code}")
+                continue
+            
+            if amount != order[5]:
+                print(f"⚠️ Amount mismatch: expected {order[5]}, got {amount}")
+                continue
+            
+            # Generate license
+            license_key = f"AFK-{secrets.token_hex(16).upper()}"
+            tier = order[3]
+            duration_days = order[4]
+            device_id = order[2]  # order[0]=id, [1]=trans_code, [2]=device_id
+            
+            # Create license in licenses table
+            expires_at = datetime.now() + timedelta(days=duration_days)
+            max_devices = get_max_devices_for_tier(tier)  # basic=2, pro=5, enterprise=-1
+            
+            result = db.execute(text("""
+                INSERT INTO licenses (license_key, tier, duration_days, max_devices, expires_at, is_active, created_at)
+                VALUES (:key, :tier, :days, :max, :exp, TRUE, NOW())
+                RETURNING id
+            """), {"key": license_key, "tier": tier, "days": duration_days, "max": max_devices, "exp": expires_at})
+            
+            license_id = result.fetchone()[0]
+            
+            # Activate license for device
+            db.execute(text("""
+                INSERT INTO license_devices (license_key, device_id, activated_at)
+                VALUES (:key, :did, NOW())
+            """), {"key": license_key, "did": device_id})
+            
+            # Update order status
+            db.execute(text("""
+                UPDATE bank_orders 
+                SET status='success', license_key=:key, paid_at=NOW(), bank_tid=:tid
+                WHERE trans_code=:code
+            """), {"key": license_key, "tid": tid, "code": trans_code})
+            
+            db.commit()
+            print(f"✅ Webhook completed order {trans_code}: License {license_key} for device {device_id[:20]}...")
+        return {"success":True,"return_code":1}
+    except Exception as e: print(f"❌ Error: {e}"); return {"success":1,"return_code":1,"error":str(e)}
+
+@app.get("/payment/bank/status")
+def bank_status(trans_code: str, db: Session = Depends(get_db)):
+    order = db.execute(text("SELECT * FROM bank_orders WHERE trans_code=:code"),{"code":trans_code}).fetchone()
+    if not order: raise HTTPException(404,"Order not found")
+    return {"trans_code":trans_code,"status":order[8],"amount":order[5],"tier":order[3],"duration_days":order[4],"license_key":order[9] if order[8]=="success" else None,"created_at":order[11].isoformat() if order[11] else None,"paid_at":order[12].isoformat() if order[12] else None}
+# AFK Zone Admin Backend - FULL IMPLEMENTATION
+# Add to existing app.py
+
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Header, Depends, Request, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel
+from datetime import datetime, timedelta
+from sqlalchemy.orm import Session
+from sqlalchemy import text, desc
+from typing import Optional, List
+import hashlib
+import secrets
+import hmac
+import jwt
+import bcrypt
+from database import get_db
+
+# ==================== ADMIN AUTH ====================
+
+SECRET_KEY = "afkzone-admin-secret-key-2025-change-this-in-production"
+ALGORITHM = "HS256"
+security = HTTPBearer()
+
+class AdminLoginRequest(BaseModel):
+    username: str
+    password: str
+
+class AdminUser(BaseModel):
+    username: str
+    role: str
+
+def create_access_token(data: dict, expires_delta: timedelta = timedelta(hours=24)):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + expires_delta
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    try:
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        username = payload.get("sub")
+        if username is None:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+@app.post("/admin/login")
+def admin_login(req: AdminLoginRequest, db: Session = Depends(get_db)):
+    """Admin login - returns JWT token"""
+    result = db.execute(
+        text("SELECT * FROM admin_users WHERE username=:username"),
+        {"username": req.username}
+    ).fetchone()
+
+    if not result:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    # Check password (bcrypt)
+    if not bcrypt.checkpw(req.password.encode(), result[2].encode()):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    # Create JWT token
+    access_token = create_access_token(
+        data={"sub": result[1], "role": result[3]}
+    )
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "username": result[1],
+        "role": result[3],
+        "expires_in": 86400
+    }
+
+# ==================== PRODUCTS MANAGEMENT ====================
+@app.get("/admin/licenses")
+def list_licenses_admin(
+    page: int = 1,
+    limit: int = 100,
+    token: dict = Depends(verify_token),
+    db: Session = Depends(get_db)
+):
+    """Admin: List all licenses with JWT auth"""
+    offset = (page - 1) * limit
+    results = db.execute(text("""
+        SELECT * FROM licenses 
+        ORDER BY created_at DESC 
+        LIMIT :limit OFFSET :offset
+    """), {"limit": limit, "offset": offset}).fetchall()
+    
+    total = db.execute(text("SELECT COUNT(*) FROM licenses")).scalar()
+    
+    licenses = []
+    for r in results:
+        licenses.append({
+            "license_key": r[1] if len(r) > 1 else None,
+            "tier": r[2] if len(r) > 2 else None,
+            "duration_days": r[3] if len(r) > 3 else None,
+            "activated_at": r[4].isoformat() if len(r) > 4 and r[4] else None,
+            "expires_at": r[5].isoformat() if len(r) > 5 and r[5] else None,
+            "device_id": r[6] if len(r) > 6 else None,
+            "max_devices": r[7] if len(r) > 7 else None,
+            "is_revoked": r[9] if len(r) > 9 else False,
+            "is_trial": r[11] if len(r) > 11 else False
+        })
+    
+    return {"total": total or 0, "licenses": licenses}
+
+@app.post("/admin/orders/{trans_code}/complete")
+def manual_complete_order(
+    trans_code: str,
+    token: dict = Depends(verify_token),
+    db: Session = Depends(get_db)
+):
+    """Admin: Manually complete a bank order"""
+    import secrets
+    from datetime import datetime, timedelta
+    
+    # Get order
+    order = db.execute(text("SELECT * FROM bank_orders WHERE trans_code=:code"), {"code": trans_code}).fetchone()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    if order[8] == 'success':  # status column
+        return {"success": False, "message": "Order already completed", "license_key": order[9]}
+    
+    trans_code_db, device_id, tier, duration_days, amount = order[1], order[2], order[3], order[4], order[5]  # order[0]=id, [1]=trans_code, [2]=device_id
+    
+    # Generate license key
+    license_key = f"AFK-{secrets.token_hex(16).upper()}"
+    
+    # Create license with device_id (old schema)
+    expires_at = datetime.now() + timedelta(days=duration_days)
+    
+    # Get max_devices for tier
+    max_devices = get_max_devices_for_tier(tier)
+    
+    db.execute(text("""
+        INSERT INTO licenses (license_key, tier, duration_days, max_devices, activated_at, expires_at, is_active, created_at)
+        VALUES (:key, :tier, :dur, :max, NOW(), :exp, TRUE, NOW())
+    """), {"key": license_key, "tier": tier, "dur": duration_days, "max": max_devices, "exp": expires_at})
+    
+    # Add device to license_devices
+    db.execute(text("""
+        INSERT INTO license_devices (license_key, device_id, activated_at)
+        VALUES (:key, :dev, NOW())
+    """), {"key": license_key, "dev": device_id})
+    
+    # Update order status
+    db.execute(text("""
+        UPDATE bank_orders 
+        SET status='success', license_key=:key, paid_at=NOW()
+        WHERE trans_code=:code
+    """), {"key": license_key, "code": trans_code})
+    
+    db.commit()
+    
+    return {
+        "success": True,
+        "message": "Order completed successfully",
+        "license_key": license_key,
+        "tier": tier,
+        "duration_days": duration_days
+    }
+
+@app.get("/admin/orders")
+def get_all_orders(
+    token: dict = Depends(verify_token),
+    db: Session = Depends(get_db),
+    status: Optional[str] = None,
+    limit: int = 50
+):
+    """Admin: Get all bank orders"""
+    query = "SELECT * FROM bank_orders"
+    params = {}
+    
+    if status:
+        query += " WHERE status=:status"
+        params["status"] = status
+    
+    query += " ORDER BY created_at DESC LIMIT :limit"
+    params["limit"] = limit
+    
+    orders = db.execute(text(query), params).fetchall()
+    
+    return {
+        "orders": [
+            {
+                "id": o[0],
+                "trans_code": o[1],
+                "device_id": o[2],
+                "tier": o[3],
+                "duration_days": o[4],
+                "amount": o[5],
+                "status": o[8],
+                "license_key": o[9],
+                "created_at": o[11].isoformat() if o[11] else None,
+                "paid_at": o[12].isoformat() if o[12] else None
+            }
+            for o in orders
+        ]
+    }
+
+
+
+@app.delete("/admin/devices/{device_id}")
+def delete_device(
+    device_id: str,
+    token: dict = Depends(verify_token),
+    db: Session = Depends(get_db)
+):
+    """Admin: Remove device from license"""
+    db.execute(text("DELETE FROM license_devices WHERE device_id=:device_id"), {"device_id": device_id})
+    db.commit()
+    return {"success": True, "message": f"Device {device_id} removed successfully"}
+@app.get("/admin/connections")
+def get_connections(
+    page: int = 1,
+    limit: int = 100,
+    token: dict = Depends(verify_token),
+    db: Session = Depends(get_db)
+):
+    """Admin: Get connection logs"""
+    offset = (page - 1) * limit
+    
+    try:
+        results = db.execute(text("""
+            SELECT device_id, peer_id, connection_type, ip_address, connected_at, disconnected_at, duration_seconds, license_key
+            FROM connection_logs
+            ORDER BY connected_at DESC
+            LIMIT :limit OFFSET :offset
+        """), {"limit": limit, "offset": offset}).fetchall()
+        
+        total = db.execute(text("SELECT COUNT(*) FROM connection_logs")).scalar() or 0
+        
+        return {
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "connections": [
+                {
+                    "device_id": r[0],
+                    "peer_id": r[1],
+                    "connection_type": r[2],
+                    "ip_address": r[3],
+                    "connected_at": r[4].isoformat() if r[4] else None,
+                    "disconnected_at": r[5].isoformat() if r[5] else None,
+                    "duration_seconds": r[6],
+                    "license_key": r[7]
+                } for r in results
+            ]
+        }
+    except Exception:
+        # Table doesn't exist
+        return {"total": 0, "page": page, "limit": limit, "connections": []}
+
+class SingleLicenseRequest(BaseModel):
+    tier: str
+    duration_days: int
+    max_devices: Optional[int] = None
+    notes: Optional[str] = None
+
+@app.post("/admin/licenses/generate")
+def generate_single_license(
+    req: SingleLicenseRequest,
+    token: dict = Depends(verify_token),
+    db: Session = Depends(get_db)
+):
+    """Admin: Generate a single license"""
+    key = f"AFK-{req.tier.upper()}-{secrets.token_hex(12).upper()}"
+    
+    db.execute(text("""
+        INSERT INTO licenses (license_key, tier, duration_days, max_devices, created_by, notes)
+        VALUES (:key, :tier, :days, :devices, 'admin', :note)
+    """), {
+        "key": key,
+        "tier": req.tier,
+        "days": req.duration_days,
+        "devices": req.max_devices or 1,
+        "note": req.notes
+    })
+    
+    db.commit()
+    
+    return {
+        "success": True,
+        "license_key": key,
+        "tier": req.tier,
+        "duration_days": req.duration_days,
+        "max_devices": req.max_devices
+    }
+
+
+
+
+
+
+class ProductCreate(BaseModel):
+    name: str
+    tier: str  # basic, pro, enterprise
+    duration_days: int
+    price: int
+    max_devices: int
+    is_active: bool = True
+    display_order: int = 0
+    description: Optional[str] = None
+
+class ProductUpdate(BaseModel):
+    name: Optional[str] = None
+    tier: Optional[str] = None
+    duration_days: Optional[int] = None
+    price: Optional[int] = None
+    max_devices: Optional[int] = None
+    is_active: Optional[bool] = None
+    display_order: Optional[int] = None
+    description: Optional[str] = None
+
+@app.get("/products")
+def get_products(active_only: bool = True, db: Session = Depends(get_db)):
+    """Get all products with formatted display fields"""
+    query = "SELECT * FROM products WHERE is_active=TRUE ORDER BY display_order, id" if active_only else "SELECT * FROM products ORDER BY display_order, id"
+    results = db.execute(text(query)).fetchall()
+
+    products = []
+    for r in results:
+        price, max_dev = r[4], r[5]
+
+        # Format display_price
+        if price == 0:
+            display_price = "Miễn phí"
+        elif price >= 1000:
+            display_price = f"{price // 1000}.000đ"
+        else:
+            display_price = f"{price}đ"
+
+        # Format max_devices_display
+        if max_dev == -1:
+            max_devices_display = "Vô cực"
+        else:
+            max_devices_display = f"{max_dev} thiết bị"
+
+        products.append({
+            "id": r[0],
+            "name": r[1],
+            "tier": r[2],
+            "duration_days": r[3],
+            "price": r[4],
+            "display_price": display_price,  # NEW!
+            "max_devices": r[5],
+            "max_devices_display": max_devices_display,  # NEW!
+            "is_active": r[6],
+            "display_order": r[7],
+            "description": r[8]
+        })
+
+    return {"products": products}
+
+@app.post("/admin/products")
+def create_product(product: ProductCreate, token: dict = Depends(verify_token), db: Session = Depends(get_db)):
+    """Admin: Create new product"""
+    db.execute(text("""
+        INSERT INTO products (name, tier, duration_days, price, max_devices, is_active, display_order, description)
+        VALUES (:name, :tier, :days, :price, :devices, :active, :order, :desc)
+    """), {
+        "name": product.name,
+        "tier": product.tier,
+        "days": product.duration_days,
+        "price": product.price,
+        "devices": product.max_devices,
+        "active": product.is_active,
+        "order": product.display_order,
+        "desc": product.description
+    })
+    db.commit()
+    return {"success": True, "message": "Product created successfully"}
+
+@app.put("/admin/products/{product_id}")
+def update_product(product_id: int, product: ProductUpdate, token: dict = Depends(verify_token), db: Session = Depends(get_db)):
+    """Admin: Update product"""
+    updates = []
+    params = {"id": product_id}
+
+    if product.name:
+        updates.append("name=:name")
+        params["name"] = product.name
+    if product.tier is not None:
+        updates.append("tier=:tier")
+        params["tier"] = product.tier
+    if product.duration_days is not None:
+        updates.append("duration_days=:days")
+        params["days"] = product.duration_days
+    if product.price is not None:
+        updates.append("price=:price")
+        params["price"] = product.price
+    if product.max_devices is not None:
+        updates.append("max_devices=:devices")
+        params["devices"] = product.max_devices
+    if product.is_active is not None:
+        updates.append("is_active=:active")
+        params["active"] = product.is_active
+    if product.display_order is not None:
+        updates.append("display_order=:order")
+        params["order"] = product.display_order
+    if product.description is not None:
+        updates.append("description=:desc")
+        params["desc"] = product.description
+
+    if updates:
+        db.execute(text(f"UPDATE products SET {', '.join(updates)} WHERE id=:id"), params)
+        db.commit()
+
+    return {"success": True, "message": "Product updated successfully"}
+
+@app.delete("/admin/products/{product_id}")
+def delete_product(product_id: int, token: dict = Depends(verify_token), db: Session = Depends(get_db)):
+    """Admin: Delete product (soft delete)"""
+    db.execute(text("UPDATE products SET is_active=FALSE WHERE id=:id"), {"id": product_id})
+    db.commit()
+    return {"success": True, "message": "Product deleted successfully"}
+
+@app.delete("/admin/products/{product_id}/permanent")
+def delete_product_permanent(
+    product_id: int,
+    token: dict = Depends(verify_token),
+    db: Session = Depends(get_db)
+):
+    """Admin: Permanently delete a product"""
+    # Check if product exists
+    product = db.execute(text("SELECT * FROM products WHERE id=:id"), {"id": product_id}).fetchone()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    # Delete from pricing table
+    db.execute(text("DELETE FROM pricing WHERE tier=:tier AND duration_days=:days"), 
+               {"tier": product[2], "days": product[3]})
+    
+    # Delete product
+    db.execute(text("DELETE FROM products WHERE id=:id"), {"id": product_id})
+    db.commit()
+    
+    return {"success": True, "message": "Product permanently deleted"}
+
+
+
+
+# ==================== ENABLE PRODUCT ====================
+@app.post("/admin/products/{product_id}/enable")
+def enable_product(product_id: int, token: dict = Depends(verify_token), db: Session = Depends(get_db)):
+    """Admin: Enable product (set is_active=TRUE)"""
+    # Check if product exists
+    product = db.execute(text("SELECT * FROM products WHERE id=:id"), {"id": product_id}).fetchone()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    db.execute(text("UPDATE products SET is_active=TRUE WHERE id=:id"), {"id": product_id})
+    db.commit()
+    return {"success": True, "message": "Product enabled successfully"}
+
+# ==================== DISABLE PRODUCT ====================
+@app.post("/admin/products/{product_id}/disable")
+def disable_product(product_id: int, token: dict = Depends(verify_token), db: Session = Depends(get_db)):
+    """Admin: Disable product (set is_active=FALSE)"""
+    product = db.execute(text("SELECT * FROM products WHERE id=:id"), {"id": product_id}).fetchone()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    db.execute(text("UPDATE products SET is_active=FALSE WHERE id=:id"), {"id": product_id})
+    db.commit()
+    return {"success": True, "message": "Product disabled successfully"}
+
+# ==================== DASHBOARD STATS ====================
+
+@app.get("/admin/dashboard/stats")
+def get_dashboard_stats(token: dict = Depends(verify_token), db: Session = Depends(get_db)):
+    """Admin: Get dashboard overview stats"""
+
+    # Total devices (with error handling)
+    try:
+        total_devices = db.execute(text("SELECT COUNT(*) FROM devices")).scalar() or 0
+    except Exception:
+        total_devices = 0
+
+    # Active devices (last 24h)
+    try:
+        active_24h = db.execute(text(
+            "SELECT COUNT(*) FROM devices WHERE last_seen > NOW() - INTERVAL '24 hours'"
+        )).scalar() or 0
+    except Exception:
+        active_24h = 0
+
+    # Active licenses (with error handling)
+    try:
+        active_licenses = db.execute(text(
+            "SELECT COUNT(*) FROM licenses WHERE expires_at > NOW() AND activated_at IS NOT NULL"
+        )).scalar() or 0
+    except Exception:
+        active_licenses = 0
+
+    # Expired licenses
+    try:
+        expired_licenses = db.execute(text(
+            "SELECT COUNT(*) FROM licenses WHERE expires_at <= NOW() AND activated_at IS NOT NULL"
+        )).scalar() or 0
+    except Exception:
+        expired_licenses = 0
+
+    # Revenue (with error handling for missing payments table)
+    try:
+        revenue_today = db.execute(text(
+            "SELECT COALESCE(SUM(amount), 0) FROM payments WHERE status='success' AND DATE(completed_at) = CURRENT_DATE"
+        )).scalar() or 0
+    except Exception:
+        revenue_today = 0
+
+    try:
+        revenue_month = db.execute(text(
+            "SELECT COALESCE(SUM(amount), 0) FROM payments WHERE status='success' AND EXTRACT(MONTH FROM completed_at) = EXTRACT(MONTH FROM NOW())"
+        )).scalar() or 0
+    except Exception:
+        revenue_month = 0
+
+    try:
+        revenue_all = db.execute(text(
+            "SELECT COALESCE(SUM(amount), 0) FROM payments WHERE status='success'"
+        )).scalar() or 0
+    except Exception:
+        revenue_all = 0
+
+    # Server stats (if exists)
+    try:
+        server_stats = db.execute(text(
+            "SELECT cpu_usage_percent, memory_usage_mb, active_connections, bandwidth_in_mbps, bandwidth_out_mbps FROM server_stats ORDER BY timestamp DESC LIMIT 1"
+        )).fetchone()
+    except Exception:
+        server_stats = None
+
+    return {
+        "total_devices": total_devices or 0,
+        "active_devices_24h": active_24h or 0,
+        "total_licenses_active": active_licenses or 0,
+        "total_licenses_expired": expired_licenses or 0,
+        "total_revenue_today": revenue_today,
+        "total_revenue_month": revenue_month,
+        "total_revenue_all": revenue_all,
+        "server_status": {
+            "cpu_usage": server_stats[0] if server_stats else 0,
+            "memory_usage_mb": server_stats[1] if server_stats else 0,
+            "active_connections": server_stats[2] if server_stats else 0,
+            "bandwidth_in_mbps": server_stats[3] if server_stats else 0,
+            "bandwidth_out_mbps": server_stats[4] if server_stats else 0
+        } if server_stats else None
+    }
+
+# ==================== USER MANAGEMENT ====================
+
+@app.get("/admin/users")
+def get_users(
+    page: int = 1,
+    limit: int = 50,
+    status: Optional[str] = None,
+    tier: Optional[str] = None,
+    search: Optional[str] = None,
+    token: dict = Depends(verify_token),
+    db: Session = Depends(get_db)
+):
+    """Admin: Get all users with pagination"""
+    offset = (page - 1) * limit
+    where_clauses = []
+    params = {"limit": limit, "offset": offset}
+
+    if status:
+        where_clauses.append("license_status=:status")
+        params["status"] = status
+
+    if tier:
+        where_clauses.append("license_tier=:tier")
+        params["tier"] = tier
+
+    if search:
+        where_clauses.append("(device_id ILIKE :search OR device_model ILIKE :search)")
+        params["search"] = f"%{search}%"
+
+    where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
+
+    # Get total count
+    total = db.execute(text(f"SELECT COUNT(*) FROM devices WHERE {where_sql}"), params).scalar()
+
+    # Get users
+    results = db.execute(text(f"""
+        SELECT * FROM devices
+        WHERE {where_sql}
+        ORDER BY last_seen DESC
+        LIMIT :limit OFFSET :offset
+    """), params).fetchall()
+
+    return {
+        "total": total or 0,
+        "page": page,
+        "limit": limit,
+        "users": [
+            {
+                "device_id": r[1],
+                "device_fingerprint": r[2],
+                "device_model": r[3],
+                "os_version": r[4],
+                "app_version": r[5],
+                "first_seen": r[6].isoformat() if r[6] else None,
+                "last_seen": r[7].isoformat() if r[7] else None,
+                "last_ip": r[8],
+                "license_key": r[9],
+                "license_status": r[10],
+                "license_tier": r[11],
+                "license_expires_at": r[12],
+                "is_active": r[13],
+                "total_sessions": r[14]
+            } for r in results
+        ]
+    }
+
+# ==================== LICENSE MANAGEMENT ====================
+
+class BulkLicenseCreate(BaseModel):
+    tier: str
+    duration_days: int
+    count: int  # 1-100
+    max_devices: int = 1
+    note: Optional[str] = None
+
+class LicenseAirdrop(BaseModel):
+    device_ids: List[str]
+    tier: str
+    duration_days: int
+    note: Optional[str] = None
+
+@app.post("/admin/licenses/bulk-create")
+def bulk_create_licenses(req: BulkLicenseCreate, token: dict = Depends(verify_token), db: Session = Depends(get_db)):
+    """Admin: Bulk create licenses"""
+    if req.count < 1 or req.count > 100:
+        raise HTTPException(status_code=400, detail="Count must be between 1 and 100")
+
+    license_keys = []
+    for _ in range(req.count):
+        key = f"AFK-{req.tier.upper()}-{secrets.token_hex(12).upper()}"
+        expires_timestamp = int((datetime.now() + timedelta(days=req.duration_days)).timestamp() * 1000)
+
+        db.execute(text("""
+            INSERT INTO licenses (license_key, tier, duration_days, expires_at, max_devices, created_by, notes)
+            VALUES (:key, :tier, :days, :exp, :devices, 'admin', :note)
+        """), {
+            "key": key,
+            "tier": req.tier,
+            "days": req.duration_days,
+            "exp": expires_timestamp,
+            "devices": req.max_devices,
+            "note": req.note
+        })
+
+        license_keys.append(key)
+
+    db.commit()
+
+    return {
+        "success": True,
+        "created": len(license_keys),
+        "license_keys": license_keys
+    }
+
+@app.post("/admin/licenses/airdrop")
+def airdrop_licenses(req: LicenseAirdrop, token: dict = Depends(verify_token), db: Session = Depends(get_db)):
+    """Admin: Airdrop licenses to specific devices"""
+    licenses_created = []
+
+    for device_id in req.device_ids:
+        key = f"AFK-{req.tier.upper()}-{secrets.token_hex(12).upper()}"
+        now = datetime.now()
+        expires = now + timedelta(days=req.duration_days)
+        expires_timestamp = int(expires.timestamp() * 1000)
+
+        # Create license
+        db.execute(text("""
+            INSERT INTO licenses (license_key, tier, duration_days, expires_at, device_id, activated_at, created_by, notes)
+            VALUES (:key, :tier, :days, :exp, :dev, :now, 'admin_airdrop', :note)
+        """), {
+            "key": key,
+            "tier": req.tier,
+            "days": req.duration_days,
+            "exp": expires_timestamp,
+            "dev": device_id,
+            "now": now,
+            "note": req.note
+        })
+
+        # Update device
+        db.execute(text("""
+            UPDATE devices
+            SET license_key=:key, license_status='active', license_tier=:tier, license_expires_at=:exp
+            WHERE device_id=:dev
+        """), {
+            "key": key,
+            "tier": req.tier,
+            "exp": expires_timestamp,
+            "dev": device_id
+        })
+
+        licenses_created.append({"device_id": device_id, "license_key": key})
+
+    db.commit()
+
+    return {
+        "success": True,
+        "licenses_created": len(licenses_created),
+        "devices_notified": len(req.device_ids),
+        "licenses": licenses_created
+    }
+
+# @app.post("/admin/licenses/{license_key}/revoke") # DISABLED - old version
+# def revoke_license(license_key: str, reason: str, token: dict = Depends(verify_token), db: Session = Depends(get_db)):
+#     """Admin: Revoke a license"""
+#     db.execute(text("""
+#         UPDATE licenses
+#         SET is_revoked=TRUE, revoked_at=NOW(), revoked_reason=:reason
+#         WHERE license_key=:key
+#     """), {"key": license_key, "reason": reason})
+# 
+#     db.commit()
+# 
+#     return {
+#         "success": True,
+#         "license_key": license_key,
+#         "revoked_at": datetime.now().isoformat()
+#     }
+
+@app.put("/admin/licenses/{license_key}/extend")
+def extend_license(license_key: str, additional_days: int, token: dict = Depends(verify_token), db: Session = Depends(get_db)):
+    """Admin: Extend license expiry"""
+    result = db.execute(text(
+        "SELECT expires_at FROM licenses WHERE license_key=:key"
+    ), {"key": license_key}).fetchone()
+
+    if not result:
+        raise HTTPException(status_code=404, detail="License not found")
+
+    current_exp = datetime.fromtimestamp(result[0] / 1000)
+    new_exp = current_exp + timedelta(days=additional_days)
+    new_exp_timestamp = int(new_exp.timestamp() * 1000)
+
+    db.execute(text(
+        "UPDATE licenses SET expires_at=:exp WHERE license_key=:key"
+    ), {"exp": new_exp_timestamp, "key": license_key})
+
+    db.commit()
+
+    return {
+        "success": True,
+        "new_expires_at": new_exp_timestamp
+    }
+
+# ==================== DEVICE HEARTBEAT ====================
+
+class HeartbeatRequest(BaseModel):
+    device_id: str
+    app_version: str
+    license_status: Optional[str] = None
+
+@app.post("/heartbeat")
+def device_heartbeat(req: HeartbeatRequest, db: Session = Depends(get_db)):
+    """Device sends heartbeat every hour"""
+    # Update or create device
+    db.execute(text("""
+        INSERT INTO devices (device_id, app_version, last_seen, total_sessions)
+        VALUES (:dev, :ver, NOW(), 1)
+        ON CONFLICT (device_id)
+        DO UPDATE SET app_version=:ver, last_seen=NOW(), total_sessions=devices.total_sessions+1
+    """), {"dev": req.device_id, "ver": req.app_version})
+
+    # Record heartbeat
+    db.execute(text("""
+        INSERT INTO device_heartbeats (device_id, app_version, license_status)
+        VALUES (:dev, :ver, :status)
+    """), {"dev": req.device_id, "ver": req.app_version, "status": req.license_status})
+
+    db.commit()
+
+    return {"success": True, "message": "Heartbeat received"}
+
+# ==================== ANALYTICS ====================
+
+@app.get("/admin/analytics/revenue")
+def get_revenue_analytics(period: str = "30d", token: dict = Depends(verify_token), db: Session = Depends(get_db)):
+    """Admin: Get revenue analytics"""
+    if period == "30d":
+        interval = "30 days"
+    elif period == "90d":
+        interval = "90 days"
+    else:
+        interval = "30 days"
+
+    # Total revenue
+    total = db.execute(text(f"""
+        SELECT COALESCE(SUM(amount), 0)
+        FROM payments
+        WHERE status='success' AND completed_at > NOW() - INTERVAL '{interval}'
+    """)).scalar() or 0
+
+    # Daily revenue
+    daily = db.execute(text(f"""
+        SELECT DATE(completed_at) as date, SUM(amount) as total
+        FROM payments
+        WHERE status='success' AND completed_at > NOW() - INTERVAL '{interval}'
+        GROUP BY DATE(completed_at)
+        ORDER BY date
+    """)).fetchall()
+
+    # By tier
+    by_tier = db.execute(text(f"""
+        SELECT tier, SUM(amount) as total
+        FROM payments
+        WHERE status='success' AND completed_at > NOW() - INTERVAL '{interval}'
+        GROUP BY tier
+    """)).fetchall()
+
+    return {
+        "total_revenue": total,
+        "daily_revenue": [{"date": r[0].isoformat(), "amount": int(r[1])} for r in daily],
+        "by_tier": {r[0]: int(r[1]) for r in by_tier}
+    }
+# Add to app.py - License Extend & User Renew
+
+# 1. ADMIN EXTEND - Fixed logic (extend from expires_at, not now)
+@app.put("/admin/licenses/{license_key}/extend")
+def admin_extend_license(license_key: str, additional_days: int, token: dict = Depends(verify_token), db: Session = Depends(get_db)):
+    """Admin: Extend license expiry - ALWAYS from current expires_at"""
+    result = db.execute(text(
+        "SELECT expires_at, duration_days FROM licenses WHERE license_key=:key"
+    ), {"key": license_key}).fetchone()
+
+    if not result:
+        raise HTTPException(status_code=404, detail="License not found")
+
+    # ALWAYS extend from current expires_at (even if expired)
+    current_exp_timestamp = result[0]
+    current_exp = datetime.fromtimestamp(current_exp_timestamp / 1000)
+    new_exp = current_exp + timedelta(days=additional_days)
+    new_exp_timestamp = int(new_exp.timestamp() * 1000)
+
+    db.execute(text(
+        "UPDATE licenses SET expires_at=:exp, duration_days=:total_days WHERE license_key=:key"
+    ), {
+        "exp": new_exp_timestamp,
+        "total_days": result[1] + additional_days,
+        "key": license_key
+    })
+
+    db.commit()
+
+    return {
+        "success": True,
+        "old_expires_at": current_exp_timestamp,
+        "new_expires_at": new_exp_timestamp,
+        "extended_days": additional_days,
+        "message": f"License extended by {additional_days} days"
+    }
+
+# 2. USER SELF-RENEW - Purchase extension (same tier)
+class UserRenewRequest(BaseModel):
+    license_key: str
+    device_id: str
+    product_id: int  # From products table
+
+@app.post("/user/license/renew")
+def user_renew_license(req: UserRenewRequest, db: Session = Depends(get_db)):
+    """User: Buy extension for existing license (create payment order)"""
+
+    # Verify license ownership
+    license_result = db.execute(text(
+        "SELECT tier, expires_at FROM licenses WHERE license_key=:key AND device_id=:dev"
+    ), {"key": req.license_key, "dev": req.device_id}).fetchone()
+
+    if not license_result:
+        raise HTTPException(status_code=403, detail="License not found or not yours")
+
+    # Get product info
+    product = db.execute(text(
+        "SELECT * FROM products WHERE id=:id AND is_active=TRUE"
+    ), {"id": req.product_id}).fetchone()
+
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    # Verify same tier
+    if product[2] != license_result[0]:  # tier column
+        raise HTTPException(status_code=400, detail=f"Product must be same tier ({license_result[0]})")
+
+    # Create payment order (will extend on payment success)
+    trans_code = f"RENEW-{secrets.token_hex(8).upper()}"
+    content = f"AFKZONE RENEW {trans_code}"
+
+    # Casso QR code
+    qr_url = f"https://img.vietqr.io/image/970422-0823333374-compact2.jpg?amount={product[4]}&addInfo={content}"
+
+    db.execute(text("""
+        INSERT INTO payments (trans_code, device_id, tier, duration_days, amount, status, license_key, payment_type)
+        VALUES (:code, :dev, :tier, :days, :amount, 'pending', :key, 'renew')
+    """), {
+        "code": trans_code,
+        "dev": req.device_id,
+        "tier": product[2],
+        "days": product[3],
+        "amount": product[4],
+        "key": req.license_key
+    })
+
+    db.commit()
+
+    return {
+        "success": True,
+        "trans_code": trans_code,
+        "qr_url": qr_url,
+        "amount": product[4],
+        "bank_info": {
+            "bank": "MB Bank",
+            "account_no": "0823333374",
+            "account_name": "NGUYEN VAN A",
+            "content": content
+        },
+        "product": {
+            "name": product[1],
+            "duration_days": product[3],
+            "will_extend_to": license_result[1] + (product[3] * 24 * 60 * 60 * 1000)
+        }
+    }
+
+# 3. UPDATE PAYMENT WEBHOOK - Handle RENEW payments
+# Add to existing webhook handler after line where license is created:
+
+# if payment_type == 'renew', extend existing license instead of creating new
+@app.post("/webhook/casso")
+@app.get("/webhook/casso")  # Allow GET for testing
+async def casso_webhook_handler(request: Request, db: Session = Depends(get_db)):
+    """Casso webhook - handle payment notifications from bank transfer"""
+    import logging
+    logging.info("=== CASSO WEBHOOK RECEIVED ===")
+    
+    try:
+        if request.method == "GET":
+            return {"status": "webhook active", "message": "Use POST to send payment data"}
+        
+        body = await request.json()
+        logging.info(f"Webhook body: {body}")
+        
+        # Casso sends data in 'data' array
+        transactions = body.get("data", [body])  # Handle both formats
+        
+        results = []
+        for txn in transactions:
+            description = txn.get("description", "")
+            amount = txn.get("amount", 0)
+            
+            logging.info(f"Processing: description={description}, amount={amount}")
+            
+            # Extract order_id from description (format: AFKZONE_xxx or just search for order_id pattern)
+            order_id = None
+            
+            # Try different patterns
+            import re
+            # Pattern 1: AFKZONE_xxx
+            match = re.search(r'AFKZONE[_\s]*(\w+)', description, re.IGNORECASE)
+            if match:
+                order_id = f"AFKZONE_{match.group(1)}"
+            
+            # Pattern 2: Any alphanumeric code
+            if not order_id:
+                match = re.search(r'([A-Z0-9]{8,})', description)
+                if match:
+                    order_id = match.group(1)
+            
+            if not order_id:
+                results.append({"error": "Order ID not found in description", "description": description})
+                continue
+            
+            logging.info(f"Found order_id: {order_id}")
+            
+            # Find order in database
+            order = db.execute(text(
+                "SELECT * FROM orders WHERE order_id=:oid AND payment_status='pending'"
+            ), {"oid": order_id}).fetchone()
+            
+            if not order:
+                # Try partial match
+                order = db.execute(text(
+                    "SELECT * FROM orders WHERE order_id LIKE :oid AND payment_status='pending'"
+                ), {"oid": f"%{order_id}%"}).fetchone()
+            
+            if not order:
+                results.append({"error": "Order not found or already processed", "order_id": order_id})
+                continue
+            
+            # order columns: id, order_id, device_id, device_fingerprint, tier, duration_days, amount, ...
+            order_amount = order[6]  # amount column
+            device_id = order[2]
+            tier = order[4]
+            duration_days = order[5]
+            
+            # Check amount (allow some tolerance for fees)
+            if abs(amount - order_amount) > 1000:  # Allow 1000 VND tolerance
+                results.append({"error": f"Amount mismatch: got {amount}, expected {order_amount}", "order_id": order_id})
+                continue
+            
+            # Generate license key
+            import secrets
+            license_key = f"AFK-{secrets.token_hex(4).upper()}-{secrets.token_hex(4).upper()}"
+            
+            # Calculate expiry
+            from datetime import datetime, timedelta
+            expires_at = int((datetime.now() + timedelta(days=duration_days)).timestamp() * 1000)
+            
+            # Create license
+            db.execute(text("""
+                INSERT INTO licenses (license_key, tier, max_devices, expires_at, is_active, created_at)
+                VALUES (:key, :tier, 2, :exp, TRUE, NOW())
+            """), {"key": license_key, "tier": tier, "exp": expires_at})
+            
+            # Update order
+            db.execute(text("""
+                UPDATE orders SET payment_status='success', paid_at=NOW(), license_key=:key
+                WHERE order_id=:oid
+            """), {"key": license_key, "oid": order_id})
+            
+            db.commit()
+            
+            logging.info(f"License created: {license_key} for order {order_id}")
+            
+            # Notify WebSocket clients
+            try:
+                import asyncio
+                asyncio.create_task(payment_manager.notify_payment_complete(order_id, license_key, expires_at))
+            except Exception as ws_err:
+                logging.warning(f"Could not notify WebSocket: {ws_err}")
+            
+            results.append({
+                "success": True,
+                "order_id": order_id,
+                "license_key": license_key,
+                "expires_at": expires_at
+            })
+        
+        return {"success": True, "results": results}
+    
+    except Exception as e:
+        import traceback
+        logging.error(f"Webhook error: {e}")
+        logging.error(traceback.format_exc())
+        return {"success": False, "error": str(e)}
+# Add to app.py - Notifications System
+
+from typing import List
+
+# 1. ADMIN: Create notification
+class NotificationCreate(BaseModel):
+    title: str
+    message: str
+    type: str  # 'maintenance', 'update', 'announcement', 'license_expiry'
+    target: str = 'all'  # 'all', 'active', 'expired', 'trial', 'specific_user'
+    expires_at: Optional[str] = None
+    target_device_id: Optional[str] = None
+
+@app.post("/admin/notifications")
+def create_notification(notif: NotificationCreate, token: dict = Depends(verify_token), db: Session = Depends(get_db)):
+    """Admin: Create new notification"""
+    expires = datetime.fromisoformat(notif.expires_at) if notif.expires_at else None
+
+    db.execute(text("""
+        INSERT INTO admin_notifications (title, message, type, target, expires_at, created_by, target_device_id)
+        VALUES (:title, :msg, :type, :target, :exp, :creator, :dev)
+    """), {
+        "title": notif.title,
+        "msg": notif.message,
+        "type": notif.type,
+        "target": notif.target,
+        "exp": expires,
+        "creator": token.get("sub"),
+        "dev": notif.target_device_id
+    })
+
+    db.commit()
+
+    return {"success": True, "message": "Notification created"}
+
+# 2. USER: Get notifications
+@app.get("/notifications")
+def get_user_notifications(device_id: str, db: Session = Depends(get_db)):
+    """User: Get all active notifications for this device"""
+
+    # Get device license status
+    device = db.execute(text(
+        "SELECT license_status, license_tier FROM devices WHERE device_id=:dev"
+    ), {"dev": device_id}).fetchone()
+
+    license_status = device[0] if device else 'none'
+
+    # Get notifications
+    # 1. Global notifications (target='all')
+    # 2. Status-specific (target='active'/'expired'/'trial')
+    # 3. Device-specific (target_device_id=device_id)
+
+    results = db.execute(text("""
+        SELECT id, title, message, type, created_at
+        FROM admin_notifications
+        WHERE is_active=TRUE
+        AND (expires_at IS NULL OR expires_at > NOW())
+        AND (
+            target='all'
+            OR target=:status
+            OR target_device_id=:dev
+        )
+        ORDER BY created_at DESC
+        LIMIT 50
+    """), {"status": license_status, "dev": device_id}).fetchall()
+
+    notifications = [
+        {
+            "id": r[0],
+            "title": r[1],
+            "message": r[2],
+            "type": r[3],
+            "created_at": r[4].isoformat()
+        } for r in results
+    ]
+
+    # Add license expiry notification if needed
+    if device:
+        license_data = db.execute(text(
+            "SELECT license_expires_at, license_tier FROM devices WHERE device_id=:dev AND license_status='active'"
+        ), {"dev": device_id}).fetchone()
+
+        if license_data and license_data[0]:
+            exp_timestamp = license_data[0]
+            exp_date = datetime.fromtimestamp(exp_timestamp / 1000)
+            days_left = (exp_date - datetime.now()).days
+
+            if 0 < days_left <= 7:
+                notifications.insert(0, {
+                    "id": -1,
+                    "title": f"⚠️ License sắp hết hạn",
+                    "message": f"License {license_data[1].upper()} của bạn sẽ hết hạn trong {days_left} ngày. Gia hạn ngay để tiếp tục sử dụng!",
+                    "type": "license_expiry",
+                    "created_at": datetime.now().isoformat()
+                })
+
+    return {
+        "total": len(notifications),
+        "unread": len(notifications),  # Can track read status later
+        "notifications": notifications
+    }
+
+# 3. ADMIN: Get all notifications
+@app.get("/admin/notifications")
+def get_all_notifications(token: dict = Depends(verify_token), db: Session = Depends(get_db)):
+    """Admin: Get all notifications"""
+    results = db.execute(text(
+        "SELECT * FROM admin_notifications ORDER BY created_at DESC LIMIT 100"
+    )).fetchall()
+
+    return {
+        "notifications": [
+            {
+                "id": r[0],
+                "title": r[1],
+                "message": r[2],
+                "type": r[3],
+                "target": r[4],
+                "is_active": r[5],
+                "created_at": r[6].isoformat(),
+                "expires_at": r[7].isoformat() if r[7] else None,
+                "created_by": r[8]
+            } for r in results
+        ]
+    }
+
+# 4. ADMIN: Delete notification
+@app.delete("/admin/notifications/{notification_id}")
+def delete_notification(notification_id: int, token: dict = Depends(verify_token), db: Session = Depends(get_db)):
+    """Admin: Delete notification"""
+    db.execute(text(
+        "UPDATE admin_notifications SET is_active=FALSE WHERE id=:id"
+    ), {"id": notification_id})
+
+    db.commit()
+
+    return {"success": True, "message": "Notification deleted"}
+
+# 5. ALTER TABLE to add target_device_id column
+# Run this SQL:
+# ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS target_device_id VARCHAR(255);
+# ALTER TABLE payments ADD COLUMN IF NOT EXISTS payment_type VARCHAR(50) DEFAULT 'new';
+
+
+# ==================== ADMIN DASHBOARD HTML ====================
+from fastapi.responses import HTMLResponse as AdminHTML
+
+@app.get("/admin", response_class=AdminHTML)
+async def serve_admin_dashboard_html():
+    """Serve admin dashboard HTML page"""
+    try:
+        with open('/app/admin_dashboard.html', 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        return "<h1>Admin Dashboard not found. Please upload admin_dashboard.html</h1>"
+
+
+# Logout device from license
+class LogoutRequest(BaseModel):
+    license_key: str
+    device_id: str
+
+@app.post("/license/logout")
+async def logout_device(request: LogoutRequest, db: Session = Depends(get_db)):
+    """Remove device from license - called when user logs out from client"""
+    try:
+        # Find license
+        license_result = db.execute(
+            text("SELECT id FROM licenses WHERE license_key = :key"),
+            {"key": request.license_key}
+        ).fetchone()
+        
+        if not license_result:
+            return {"success": False, "message": "License not found"}
+        
+        license_id = license_result[0]
+        
+        # Remove device from license_devices
+        db.execute(
+            text("DELETE FROM license_devices WHERE license_key = :key AND device_id = :did"),
+            {"key": license_id, "did": request.device_id}
+        )
+        db.commit()
+        
+        return {"success": True, "message": "Device logged out successfully"}
+    except Exception as e:
+        db.rollback()
+        print(f"Error logging out device: {e}")
+        return {"success": False, "message": str(e)}
+
+# Get license info including device count
+
+@app.get("/license/info")
+def get_license_info(license_key: str, db: Session = Depends(get_db)):
+    """Get license info including device count"""
+    try:
+        # Get license
+        lic = db.execute(text("""
+            SELECT id, license_key, tier, duration_days, activated_at, expires_at, max_devices, is_revoked
+            FROM licenses WHERE license_key = :key
+        """), {"key": license_key}).fetchone()
+        
+        if not lic:
+            raise HTTPException(status_code=404, detail="License not found")
+        
+        # Get device count using license_key
+        device_count = db.execute(
+            text("SELECT COUNT(*) FROM license_devices WHERE license_key = :key"),
+            {"key": license_key}
+        ).scalar() or 0
+        
+        max_devices = lic[6] if lic[6] else 1
+        
+        return {
+            "license_key": lic[1],
+            "tier": lic[2],
+            "duration_days": lic[3],
+            "activated_at": lic[4].isoformat() if lic[4] else None,
+            "expires_at": lic[5].isoformat() if lic[5] else None,
+            "max_devices": max_devices,
+            "device_count": device_count,
+            "is_revoked": lic[7] if len(lic) > 7 else False,
+            "devices_remaining": (max_devices - device_count) if max_devices != -1 else -1
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/user/history")
+async def get_user_history(device_id: str = None, fingerprint: str = None, db: Session = Depends(get_db)):
+    """Get purchase history for a device"""
+    try:
+        query = text("""
+            SELECT DISTINCT l.license_key, l.tier, l.duration_days, l.expires_at, l.status,
+                   CASE WHEN l.expires_at > NOW() THEN 'active' ELSE 'expired' END as current_status
+            FROM licenses l
+            LEFT JOIN license_devices ld ON l.license_key = ld.license_key
+            WHERE ld.device_id = :device_id OR l.device_id = :device_id
+            ORDER BY l.created_at DESC
+            LIMIT 20
+        """)
+        result = db.execute(query, {"device_id": device_id})
+        licenses = []
+        for row in result:
+            licenses.append({
+                "license_key": row[0],
+                "tier": row[1],
+                "duration_days": row[2],
+                "expires_at": row[3].strftime("%d/%m/%Y %H:%M") if row[3] else None,
+                "status": row[5]
+            })
+        return {"licenses": licenses}
+    except Exception as e:
+        print(f"Error getting user history: {e}")
+        return {"licenses": []}
+
+
+@app.post("/license/recover")
+async def recover_license(data: dict, db: Session = Depends(get_db)):
+    """Recover license by transaction code"""
+    trans_code = data.get("trans_code", "").strip().upper()
+    
+    if not trans_code:
+        raise HTTPException(status_code=400, detail="Transaction code is required")
+    
+    try:
+        query = text("""
+            SELECT license_key, tier, duration_days, status
+            FROM bank_orders
+            WHERE trans_code = :trans_code
+        """)
+        result = db.execute(query, {"trans_code": trans_code}).fetchone()
+        
+        if not result:
+            raise HTTPException(status_code=404, detail="Khong tim thay giao dich voi ma nay")
+        
+        license_key = result[0]
+        status = result[3]
+        
+        if status not in ['completed', 'success']:
+            raise HTTPException(status_code=400, detail="Giao dich chua duoc thanh toan hoan tat")
+        
+        if not license_key:
+            raise HTTPException(status_code=400, detail="Giao dich chua co license, vui long lien he admin")
+        
+        license_query = text("""
+            SELECT license_key, tier, duration_days, expires_at
+            FROM licenses
+            WHERE license_key = :license_key
+        """)
+        license_result = db.execute(license_query, {"license_key": license_key}).fetchone()
+        
+        if license_result:
+            return {
+                "license_key": license_result[0],
+                "tier": license_result[1],
+                "duration_days": license_result[2],
+                "expires_at": license_result[3].strftime("%d/%m/%Y %H:%M") if license_result[3] else None
+            }
+        
+        return {"license_key": license_key}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error recovering license: {e}")
+        raise HTTPException(status_code=500, detail="Loi he thong, vui long thu lai")
+
+
+@app.get("/admin/licenses/all")
+async def get_all_licenses_v2(token: str = Depends(verify_token), db: Session = Depends(get_db)):
+    """Get ALL licenses (both manual and from payments)"""
+    try:
+        query = text("""
+            SELECT l.license_key, l.tier, l.duration_days, l.max_devices, l.activated_at, l.expires_at, 
+                   l.created_at, l.is_revoked,
+                   COALESCE(bo.trans_code, 'manual') as source,
+                   (SELECT COUNT(*) FROM license_devices ld WHERE ld.license_key = l.license_key) as device_count
+            FROM licenses l
+            LEFT JOIN bank_orders bo ON bo.license_key = l.license_key
+            ORDER BY l.created_at DESC
+            LIMIT 100
+        """)
+        result = db.execute(query)
+        licenses = []
+        for row in result:
+            from datetime import datetime as dt
+            is_revoked = row[7] if row[7] else False
+            is_expired = row[5] and row[5] < dt.now() if row[5] else False
+            status = "revoked" if is_revoked else ("expired" if is_expired else "active")
+            licenses.append({
+                "license_key": row[0],
+                "tier": row[1],
+                "duration_days": row[2],
+                "max_devices": row[3],
+                "activated_at": row[4].strftime("%H:%M:%S %d/%m/%Y") if row[4] else None,
+                "expires_at": row[5].strftime("%H:%M:%S %d/%m/%Y") if row[5] else None,
+                "created_at": row[6].strftime("%H:%M:%S %d/%m/%Y") if row[6] else None,
+                "status": status,
+                "source": row[8],
+                "device_count": row[9] or 0
+            })
+        return {"licenses": licenses}
+    except Exception as e:
+        print(f"Error getting all licenses: {e}")
+        db.rollback()
+        return {"licenses": []}
+
+
+@app.get("/admin/devices/detailed")
+async def get_detailed_devices(token: str = Depends(verify_token), db: Session = Depends(get_db)):
+    """Get devices with detailed info"""
+    try:
+        query = text("""
+            SELECT ld.device_id, ld.license_key, ld.activated_at,
+                   l.tier, l.expires_at
+            FROM license_devices ld
+            JOIN licenses l ON l.license_key = ld.license_key
+            ORDER BY ld.activated_at DESC
+            LIMIT 100
+        """)
+        result = db.execute(query)
+        devices = []
+        for row in result:
+            devices.append({
+                "device_id": row[0],
+                "license_key": row[1],
+                "activated_at": row[2].strftime("%H:%M:%S %d/%m/%Y") if row[2] else None,
+                "tier": row[3],
+                "expires_at": row[4].strftime("%d/%m/%Y") if row[4] else None
+            })
+        return {"devices": devices}
+    except Exception as e:
+        print(f"Error getting detailed devices: {e}")
+        db.rollback()
+        return {"devices": []}
+
+# ==================== TRIAL DEVICE MANAGEMENT ====================
+
+@app.get("/admin/trial-devices")
+async def get_trial_devices(token: str = Depends(verify_token), db: Session = Depends(get_db)):
+    """Get all trial devices"""
+    try:
+        query = text("""
+            SELECT id, device_fingerprint, ip_address, license_key, created_at
+            FROM trial_devices
+            ORDER BY created_at DESC
+        """)
+        result = db.execute(query)
+        devices = []
+        for row in result:
+            devices.append({
+                "id": row[0],
+                "device_fingerprint": row[1][:16] + "..." if row[1] else "N/A",
+                "ip_address": row[2],
+                "license_key": row[3],
+                "created_at": row[4].strftime("%H:%M:%S %d/%m/%Y") if row[4] else None
+            })
+        return {"devices": devices}
+    except Exception as e:
+        print(f"Error getting trial devices: {e}")
+        return {"devices": []}
+
+
+@app.delete("/admin/trial-devices/{device_id}")
+async def delete_trial_device(device_id: int, token: str = Depends(verify_token), db: Session = Depends(get_db)):
+    """Delete a trial device"""
+    try:
+        db.execute(text("DELETE FROM trial_devices WHERE id = :id"), {"id": device_id})
+        db.commit()
+        return {"message": "Trial device deleted"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/admin/trial-devices")
+async def clear_all_trial_devices(token: str = Depends(verify_token), db: Session = Depends(get_db)):
+    """Clear ALL trial devices"""
+    try:
+        db.execute(text("DELETE FROM trial_devices"))
+        db.commit()
+        return {"message": "All trial devices cleared"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== CONNECTION LOGS ====================
+
+@app.post("/connection/log")
+async def log_connection(data: dict, db: Session = Depends(get_db)):
+    """Log a connection from client"""
+    try:
+        device_id = data.get("device_id", "")
+        remote_id = data.get("remote_id", "")
+        action = data.get("action", "connect")  # connect, disconnect
+        
+        # Try to create table if not exists
+        try:
+            db.execute(text("""
+                CREATE TABLE IF NOT EXISTS connection_logs (
+                    id SERIAL PRIMARY KEY,
+                    device_id VARCHAR(255),
+                    remote_id VARCHAR(255),
+                    action VARCHAR(50),
+                    ip_address VARCHAR(50),
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            db.commit()
+        except:
+            db.rollback()
+        
+        db.execute(text("""
+            INSERT INTO connection_logs (device_id, remote_id, action, ip_address)
+            VALUES (:device_id, :remote_id, :action, :ip)
+        """), {
+            "device_id": device_id,
+            "remote_id": remote_id,
+            "action": action,
+            "ip": "unknown"
+        })
+        db.commit()
+        return {"status": "logged"}
+    except Exception as e:
+        db.rollback()
+        return {"status": "error", "detail": str(e)}
+
+
+@app.get("/admin/connections")
+async def get_connections_v2(token: str = Depends(verify_token), db: Session = Depends(get_db)):
+    """Get connection logs"""
+    try:
+        # Check if table exists
+        try:
+            result = db.execute(text("""
+                SELECT device_id, remote_id, action, ip_address, created_at
+                FROM connection_logs
+                ORDER BY created_at DESC
+                LIMIT 100
+            """))
+            connections = []
+            for row in result:
+                connections.append({
+                    "device_id": row[0],
+                    "remote_id": row[1],
+                    "action": row[2],
+                    "ip_address": row[3],
+                    "created_at": row[4].strftime("%H:%M:%S %d/%m/%Y") if row[4] else None
+                })
+            return {"connections": connections}
+        except:
+            return {"connections": [], "note": "Connection logging not yet initialized. Connections will appear after clients connect."}
+    except Exception as e:
+        print(f"Error getting connections: {e}")
+        return {"connections": []}
+
+# ==================== LICENSE MANAGEMENT ====================
+
+@app.delete("/admin/licenses/{license_key}")
+async def delete_license(license_key: str, token: str = Depends(verify_token), db: Session = Depends(get_db)):
+    """Permanently delete a license"""
+    try:
+        # First delete from license_devices
+        db.execute(text("DELETE FROM license_devices WHERE license_key = :key"), {"key": license_key})
+        # Then delete the license
+        result = db.execute(text("DELETE FROM licenses WHERE license_key = :key"), {"key": license_key})
+        db.commit()
+        
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail="License not found")
+        
+        return {"message": "License deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/admin/licenses/{license_key}/revoke")
+async def revoke_license_v2(license_key: str, token: str = Depends(verify_token), db: Session = Depends(get_db)):
+    """Revoke a license - will block client on next check"""
+    try:
+        result = db.execute(text("""
+            UPDATE licenses 
+            SET is_revoked = true, revoked_at = NOW(), revoked_reason = 'Admin revoked'
+            WHERE license_key = :key
+        """), {"key": license_key})
+        db.commit()
+        
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail="License not found")
+        
+        return {"message": "License revoked successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/admin/licenses/{license_key}/unrevoke")
+async def unrevoke_license(license_key: str, token: str = Depends(verify_token), db: Session = Depends(get_db)):
+    """Unrevoke a license - restore access"""
+    try:
+        result = db.execute(text("""
+            UPDATE licenses 
+            SET is_revoked = false, revoked_at = NULL, revoked_reason = NULL
+            WHERE license_key = :key
+        """), {"key": license_key})
+        db.commit()
+        
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail="License not found")
+        
+        return {"message": "License unrevoked successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+# ==================== MULTI-DEVICE ACTIVATION FIX ====================
+@app.post("/activate-v2")
+def activate_license_v2(data: dict, db: Session = Depends(get_db)):
+    """Activate license on a device - supports multi-device"""
+    license_key = data.get("license_key")
+    device_id = data.get("device_id")
+    
+    if not license_key or not device_id:
+        raise HTTPException(status_code=400, detail="Missing license_key or device_id")
+    
+    # Check if license exists
+    lic = db.execute(
+        text("SELECT license_key, tier, duration_days, activated_at, expires_at, max_devices, is_revoked FROM licenses WHERE license_key=:key"),
+        {"key": license_key}
+    ).fetchone()
+    
+    if not lic:
+        raise HTTPException(status_code=404, detail="License không hợp lệ")
+    
+    if lic[6]:  # is_revoked
+        raise HTTPException(status_code=403, detail="License đã bị thu hồi")
+    
+    max_devices = lic[5] or 1
+    
+    # Check if device is already activated with this license
+    existing = db.execute(
+        text("SELECT id FROM license_devices WHERE license_key=:key AND device_id=:device"),
+        {"key": license_key, "device": device_id}
+    ).fetchone()
+    
+    if existing:
+        # Device already activated - return success
+        return {
+            "status": "active",
+            "tier": lic[1],
+            "duration_days": lic[2],
+            "expires_at": lic[4].isoformat() if lic[4] else None,
+            "max_devices": max_devices,
+            "message": "Device đã được kích hoạt trước đó"
+        }
+    
+    # Count current activated devices
+    device_count = db.execute(
+        text("SELECT COUNT(*) FROM license_devices WHERE license_key=:key"),
+        {"key": license_key}
+    ).scalar() or 0
+    
+    # Check if max devices reached (skip check if max_devices = -1 = unlimited)
+    if max_devices != -1 and device_count >= max_devices:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"License đã đạt giới hạn {max_devices} thiết bị. Vui lòng xóa thiết bị cũ hoặc nâng cấp gói."
+        )
+    
+    # Activate on this device
+    db.execute(
+        text("INSERT INTO license_devices (license_key, device_id, activated_at) VALUES (:key, :device, NOW())"),
+        {"key": license_key, "device": device_id}
+    )
+    
+    # Update activated_at if first activation
+    if not lic[3]:  # activated_at is NULL
+        expires_at = datetime.now() + timedelta(days=lic[2])
+        db.execute(
+            text("UPDATE licenses SET activated_at=NOW(), expires_at=:exp WHERE license_key=:key"),
+            {"key": license_key, "exp": expires_at}
+        )
+        db.commit()
+        return {
+            "status": "activated",
+            "tier": lic[1],
+            "duration_days": lic[2],
+            "expires_at": expires_at.isoformat(),
+            "max_devices": max_devices,
+            "device_count": device_count + 1,
+            "message": "Kích hoạt thành công!"
+        }
+    
+    db.commit()
+    return {
+        "status": "activated",
+        "tier": lic[1],
+        "duration_days": lic[2],
+        "expires_at": lic[4].isoformat() if lic[4] else None,
+        "max_devices": max_devices,
+        "device_count": device_count + 1,
+        "message": "Thêm thiết bị thành công!"
+    }
+
+
+
+# ==================== TIERS MANAGEMENT ====================
+@app.get("/admin/tiers")
+def get_tiers(token: dict = Depends(verify_token), db: Session = Depends(get_db)):
+    """Admin: Get all tiers"""
+    result = db.execute(text("SELECT * FROM tiers ORDER BY display_order")).fetchall()
+    return [{
+        "id": r[0],
+        "tier_key": r[1],
+        "tier_name": r[2],
+        "description": r[3],
+        "is_active": r[4],
+        "display_order": r[5]
+    } for r in result]
+
+@app.get("/tiers")
+def get_active_tiers(db: Session = Depends(get_db)):
+    """Public: Get active tiers for dropdowns"""
+    result = db.execute(text("SELECT tier_key, tier_name FROM tiers WHERE is_active=TRUE ORDER BY display_order")).fetchall()
+    return [{"value": r[0], "label": r[1]} for r in result]
+
+class TierCreate(BaseModel):
+    tier_key: str
+    tier_name: str
+    description: Optional[str] = None
+    is_active: bool = True
+    display_order: int = 0
+
+@app.post("/admin/tiers")
+def create_tier(tier: TierCreate, token: dict = Depends(verify_token), db: Session = Depends(get_db)):
+    """Admin: Create new tier"""
+    try:
+        db.execute(text("""
+            INSERT INTO tiers (tier_key, tier_name, description, is_active, display_order)
+            VALUES (:key, :name, :desc, :active, :order)
+        """), {"key": tier.tier_key, "name": tier.tier_name, "desc": tier.description, "active": tier.is_active, "order": tier.display_order})
+        db.commit()
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.put("/admin/tiers/{tier_id}")
+def update_tier(tier_id: int, tier: TierCreate, token: dict = Depends(verify_token), db: Session = Depends(get_db)):
+    """Admin: Update tier"""
+    db.execute(text("""
+        UPDATE tiers SET tier_key=:key, tier_name=:name, description=:desc, is_active=:active, display_order=:order
+        WHERE id=:id
+    """), {"id": tier_id, "key": tier.tier_key, "name": tier.tier_name, "desc": tier.description, "active": tier.is_active, "order": tier.display_order})
+    db.commit()
+    return {"success": True}
+
+@app.delete("/admin/tiers/{tier_id}")
+def delete_tier(tier_id: int, token: dict = Depends(verify_token), db: Session = Depends(get_db)):
+    """Admin: Delete tier"""
+    db.execute(text("DELETE FROM tiers WHERE id=:id"), {"id": tier_id})
+    db.commit()
+    return {"success": True}
+
+
+# ==================== WEBSOCKET PAYMENT NOTIFICATION ====================
+import asyncio
+from typing import Dict, Set
+
+# Store active WebSocket connections by order_id
+payment_connections: Dict[str, Set[WebSocket]] = {}
+
+class PaymentConnectionManager:
+    def __init__(self):
+        self.active_connections: Dict[str, Set[WebSocket]] = {}
+    
+    async def connect(self, order_id: str, websocket: WebSocket):
+        await websocket.accept()
+        if order_id not in self.active_connections:
+            self.active_connections[order_id] = set()
+        self.active_connections[order_id].add(websocket)
+        print(f"📡 WebSocket connected for order {order_id}")
+    
+    def disconnect(self, order_id: str, websocket: WebSocket):
+        if order_id in self.active_connections:
+            self.active_connections[order_id].discard(websocket)
+            if not self.active_connections[order_id]:
+                del self.active_connections[order_id]
+        print(f"📡 WebSocket disconnected for order {order_id}")
+    
+    async def notify_payment_complete(self, order_id: str, license_key: str, expires_at: int):
+        """Notify all connected clients that payment is complete"""
+        if order_id in self.active_connections:
+            message = {
+                "type": "payment_complete",
+                "order_id": order_id,
+                "license_key": license_key,
+                "expires_at": expires_at,
+                "message": "Thanh toán thành công! License của bạn đã được kích hoạt."
+            }
+            disconnected = []
+            for websocket in self.active_connections[order_id]:
+                try:
+                    await websocket.send_json(message)
+                    print(f"✅ Sent license notification to order {order_id}")
+                except:
+                    disconnected.append(websocket)
+            
+            # Clean up disconnected
+            for ws in disconnected:
+                self.active_connections[order_id].discard(ws)
+
+payment_manager = PaymentConnectionManager()
+
+@app.websocket("/ws/payment/{order_id}")
+async def websocket_payment_endpoint(websocket: WebSocket, order_id: str):
+    """WebSocket endpoint for payment notifications"""
+    await payment_manager.connect(order_id, websocket)
+    try:
+        # Check if order already completed
+        from database import get_db
+        db = next(get_db())
+        order = db.execute(text(
+            "SELECT payment_status, license_key FROM orders WHERE order_id=:oid"
+        ), {"oid": order_id}).fetchone()
+        
+        if order and order[0] == 'success' and order[1]:
+            # Already paid, send license immediately
+            await websocket.send_json({
+                "type": "payment_complete",
+                "order_id": order_id,
+                "license_key": order[1],
+                "message": "Đơn hàng đã được thanh toán!"
+            })
+        
+        # Keep connection alive and wait for payment
+        while True:
+            try:
+                # Receive heartbeat or close
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                if data == "ping":
+                    await websocket.send_text("pong")
+            except asyncio.TimeoutError:
+                # Send keepalive
+                await websocket.send_json({"type": "keepalive"})
+    except WebSocketDisconnect:
+        payment_manager.disconnect(order_id, websocket)
+    except Exception as e:
+        print(f"WebSocket error: {e}")
+        payment_manager.disconnect(order_id, websocket)
+
+# Endpoint to check order status (fallback if WebSocket fails)
+@app.get("/payment/status/{order_id}")
+def check_payment_status(order_id: str, db: Session = Depends(get_db)):
+    """Check payment status for an order"""
+    order = db.execute(text(
+        "SELECT payment_status, license_key, tier, duration_days FROM orders WHERE order_id=:oid"
+    ), {"oid": order_id}).fetchone()
+    
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    return {
+        "order_id": order_id,
+        "status": order[0],
+        "license_key": order[1],
+        "tier": order[2],
+        "duration_days": order[3]
+    }
