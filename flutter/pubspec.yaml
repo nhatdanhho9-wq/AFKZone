@@ -112,6 +112,7 @@ dependencies:
   sqflite: 2.2.0
   google_fonts: ^6.2.1
   vector_math: ^2.1.4
+  web_socket_channel: ^2.4.0  # For WebSocket payment notifications
 
 dev_dependencies:
   icons_launcher: ^2.0.4
