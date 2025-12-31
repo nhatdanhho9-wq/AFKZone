@@ -5,6 +5,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_hbb/services/payment_service.dart';
 import 'package:flutter_hbb/common/license_service.dart';
+import 'package:flutter_hbb/common/payment_websocket_service.dart';
 
 class PaymentQRScreen extends StatefulWidget {
   final String tier;
@@ -25,7 +26,12 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
   String? _bankAccount;
   String? _content;
   Timer? _pollingTimer;
+  Timer? _countdownTimer;
   int _countdown = 600; // 10 minutes
+  
+  // WebSocket for real-time payment notification
+  final PaymentWebSocketService _paymentWs = PaymentWebSocketService();
+  bool _paymentReceived = false;
 
   @override
   void initState() {
@@ -36,6 +42,8 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
   @override
   void dispose() {
     _pollingTimer?.cancel();
+    _countdownTimer?.cancel();
+    _paymentWs.disconnect();
     super.dispose();
   }
 
@@ -57,6 +65,10 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
         _isLoading = false;
       });
 
+      // Start WebSocket connection for real-time notification (PRIMARY)
+      _startWebSocket();
+      
+      // Start polling as fallback (will be stopped if WebSocket works)
       _startPolling();
       _startCountdown();
     } catch (e) {
@@ -66,14 +78,50 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
       });
     }
   }
+  
+  void _startWebSocket() {
+    if (_transCode == null) return;
+    
+    print('📡 Starting WebSocket for order: $_transCode');
+    _paymentWs.connect(
+      orderId: _transCode!,
+      onPaymentComplete: (notification) {
+        if (_paymentReceived) return; // Prevent duplicate
+        _paymentReceived = true;
+        
+        // Stop polling since WebSocket succeeded
+        _pollingTimer?.cancel();
+        _countdownTimer?.cancel();
+        
+        print('🎉 WebSocket received payment notification!');
+        _showSuccessDialog(notification.licenseKey);
+      },
+      onConnectionError: () {
+        // WebSocket failed, polling will continue as fallback
+        print('⚠️ WebSocket connection failed, using polling fallback');
+      },
+    );
+  }
 
   void _startPolling() {
-    _pollingTimer = Timer.periodic(Duration(seconds: 2), (timer) async {
+    _pollingTimer = Timer.periodic(Duration(seconds: 3), (timer) async {
+      if (_paymentReceived) {
+        timer.cancel();
+        return;
+      }
+      
       try {
         final status = await PaymentService.checkPaymentStatus(_transCode!);
         if (status['status'] == 'success') {
+          if (_paymentReceived) return; // Prevent duplicate
+          _paymentReceived = true;
+          
           timer.cancel();
+          _countdownTimer?.cancel();
+          _paymentWs.disconnect();
+          
           final licenseKey = status['license_key'];
+          print('✅ Polling detected payment success');
           _showSuccessDialog(licenseKey);
         }
       } catch (e) {
@@ -83,12 +131,18 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
   }
 
   void _startCountdown() {
-    Timer.periodic(Duration(seconds: 1), (timer) {
+    _countdownTimer = Timer.periodic(Duration(seconds: 1), (timer) {
+      if (_paymentReceived) {
+        timer.cancel();
+        return;
+      }
+      
       if (_countdown > 0) {
         setState(() => _countdown--);
       } else {
         timer.cancel();
         _pollingTimer?.cancel();
+        _paymentWs.disconnect();
       }
     });
   }
@@ -234,16 +288,32 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
               );
             },
           ),
-          ElevatedButton(
+          ElevatedButton.icon(
+            icon: Icon(Icons.check_circle, size: 20),
+            label: Text('Hoàn tất & Sử dụng'),
             onPressed: () {
-              Navigator.pop(context); // Close dialog
-              Navigator.pop(context); // Go back to payment screen
-              Navigator.pop(context); // Go back to license page
+              // Close all screens and go back to home
+              Navigator.of(context).popUntil((route) => route.isFirst);
+              
+              // Show success snackbar
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Row(
+                    children: [
+                      Icon(Icons.check_circle, color: Colors.white),
+                      SizedBox(width: 12),
+                      Expanded(child: Text('License đã được kích hoạt! Bạn có thể sử dụng app ngay.')),
+                    ],
+                  ),
+                  backgroundColor: Colors.green,
+                  duration: Duration(seconds: 4),
+                ),
+              );
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.green,
+              padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
             ),
-            child: Text('Hoàn tất'),
           ),
         ],
       ),
