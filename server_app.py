@@ -32,6 +32,16 @@ import json
 import base64
 from database import get_db
 
+def require_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(f"{name} is not set")
+    return value
+
+ADMIN_KEY = require_env("ADMIN_KEY")
+JWT_SECRET = require_env("JWT_SECRET")
+CASSO_WEBHOOK_TOKEN = require_env("CASSO_WEBHOOK_TOKEN")
+
 app = FastAPI(title="AFK Zone License API v2.0.6")
 
 app.add_middleware(
@@ -231,7 +241,7 @@ def check_license(req: ActivateRequest, db: Session = Depends(get_db)):
 
 @app.post("/generate")
 def generate_licenses(req: GenerateRequest, admin_key: str = Header(None), db: Session = Depends(get_db)):
-    if admin_key != os.getenv("ADMIN_KEY", "afkzone-admin-2025"):
+    if admin_key != ADMIN_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
     if req.tier not in DEVICE_LIMITS or req.duration_days not in [7, 30, 60, 90, 180, 365]:
         raise HTTPException(status_code=400, detail="Invalid tier or duration")
@@ -246,7 +256,7 @@ def generate_licenses(req: GenerateRequest, admin_key: str = Header(None), db: S
 
 @app.get("/list")
 def list_licenses(admin_key: str = Header(None), db: Session = Depends(get_db)):
-    if admin_key != "afkzone-admin-2025":
+    if admin_key != ADMIN_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
     results = db.execute(text("SELECT * FROM licenses ORDER BY created_at DESC LIMIT 100")).fetchall()
     licenses = [{"license_key": r[1], "tier": r[2], "duration_days": r[3], "activated_at": r[4].isoformat() if r[4] else None,
@@ -350,7 +360,7 @@ BANK_CONFIG = {
     "bank_id": "970422",
     "account_no": os.getenv("MB_BANK_ACCOUNT", "0823333374"),
     "account_name": os.getenv("MB_BANK_NAME", "HO NHAT DANH"),
-    "casso_token": os.getenv("CASSO_WEBHOOK_TOKEN", "nJJmwAm0BX43ybO6cszOz2itCCvxUE9M6t4WISqa8k4vl8VcLypqE3O1iAWWFQIB")
+    "casso_token": CASSO_WEBHOOK_TOKEN
 }
 
 class BankTransferRequest(BaseModel):
@@ -521,7 +531,7 @@ from database import get_db
 
 # ==================== ADMIN AUTH ====================
 
-SECRET_KEY = os.getenv("JWT_SECRET", "afkzone-admin-secret-key-2025-change-this-in-production")
+SECRET_KEY = JWT_SECRET
 ALGORITHM = "HS256"
 security = HTTPBearer()
 
