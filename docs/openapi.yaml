@@ -1,0 +1,68 @@
+openapi: 3.0.3
+info:
+  title: AFK Zone License API
+  version: 2.2.0
+  description: |
+    API for managing AFK Zone licenses, payments, and devices.
+    
+    **Contract Status**: Frozen
+    **Date Fixed**: 2026-01-01
+    **Canonical Webhook**: `/webhook/casso`
+    **Date Format**: ISO 8601
+
+servers:
+  - url: https://api.afkzone.cloud
+    description: Production Server
+
+typ:
+  security:
+    - BearerAuth: []
+    - AdminKey: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    AdminKey:
+      type: apiKey
+      in: header
+      name: admin_key
+
+  schemas:
+    StandardResponse:
+      $ref: './schemas/api_response.json'
+    ErrorResponse:
+      $ref: './schemas/error_response.json'
+
+paths:
+  /check:
+    post:
+      summary: Check license validity
+      tags: [Client]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                license_key: {type: string}
+                device_id: {type: string}
+      responses:
+        200:
+          description: License is active
+  
+  /webhook/casso:
+    post:
+      summary: Payment Webhook (Canonical)
+      tags: [Webhook]
+      parameters:
+        - in: header
+          name: secure-token
+          schema: {type: string}
+          required: true
+      responses:
+        200:
+          description: Processed successfully
