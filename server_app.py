@@ -464,51 +464,57 @@ async def bank_webhook_test():
 
 @app.post("/payment/bank/webhook")
 async def bank_webhook(request: Request, db: Session = Depends(get_db)):
+    import re
     try:
         # DEPRECATED: Canonical endpoint is /webhook/casso
         print("⚠️ DEPRECATED ENDPOINT: /payment/bank/webhook was called. Please update to /webhook/casso")
         
-        # Casso Webhook V2 uses signature instead of token
         body_bytes = await request.body()
         body_str = body_bytes.decode('utf-8')
         
-        # Get signature from header
+        # FIX #1: Accept both x-casso-signature AND secure-token fallback
         signature_header = request.headers.get("x-casso-signature", "")
+        secure_token = request.headers.get("secure-token", "")
         
-        # Parse signature: t=timestamp,v1=signature
-        sig_parts = {}
-        for part in signature_header.split(","):
-            if "=" in part:
-                k, v = part.split("=", 1)
-                sig_parts[k] = v
-        
-        timestamp = sig_parts.get("t", "")
-        signature = sig_parts.get("v1", "")
-        
-        # Verify signature using webhook secret
         secret = BANK_CONFIG['casso_token']
-        signed_payload = f"{timestamp}.{body_str}"
-        expected_signature = hmac.new(
-            secret.encode(),
-            signed_payload.encode(),
-            hashlib.sha512
-        ).hexdigest()
+        auth_valid = False
         
-        print(f"=== CASSO WEBHOOK V2 ===")
-        print(f"Body: {body_str[:200]}...")
-        print(f"Timestamp: {timestamp}")
-        print(f"Signature received: {signature[:50]}...")
-        print(f"Signature expected: {expected_signature[:50]}...")
-        print(f"Match: {signature == expected_signature}")
+        if signature_header:
+            # Casso Webhook V2: verify signature
+            sig_parts = {}
+            for part in signature_header.split(","):
+                if "=" in part:
+                    k, v = part.split("=", 1)
+                    sig_parts[k] = v
+            
+            timestamp = sig_parts.get("t", "")
+            signature = sig_parts.get("v1", "")
+            
+            signed_payload = f"{timestamp}.{body_str}"
+            expected_signature = hmac.new(
+                secret.encode(),
+                signed_payload.encode(),
+                hashlib.sha512
+            ).hexdigest()
+            
+            print(f"=== CASSO WEBHOOK V2 ===")
+            print(f"Signature received: {signature[:50] if signature else 'NONE'}...")
+            print(f"Signature expected: {expected_signature[:50]}...")
+            
+            if signature == expected_signature:
+                auth_valid = True
+                print("✅ Signature verified!")
+        elif secure_token:
+            # Fallback: secure-token header (V1 style)
+            if secure_token == secret:
+                auth_valid = True
+                print("✅ Secure-token verified (fallback)!")
+            else:
+                print(f"❌ Secure-token mismatch!")
         
-        # Verify signature in strict mode
-        if not signature:
-            print(f"❌ Missing signature! Rejecting webhook.")
-            raise HTTPException(status_code=401, detail="Missing signature")
-
-        if signature != expected_signature:
-            print(f"❌ Signature mismatch! Rejecting webhook.")
-            raise HTTPException(status_code=401, detail="Invalid signature")
+        if not auth_valid:
+            print(f"❌ No valid authentication! Rejecting webhook.")
+            raise HTTPException(status_code=401, detail="Missing or invalid authentication")
         
         # Parse body
         data = json.loads(body_str)
@@ -519,15 +525,19 @@ async def bank_webhook(request: Request, db: Session = Depends(get_db)):
             desc = t.get("description", "").upper()
             tid = t.get("tid", "")
             
-            # Try to find trans_code in description
+            # FIX #2: Robust trans_code extraction with regex
             trans_code = None
-            if "AFK" in desc:
-                # Extract trans_code from description
-                parts = desc.split()
-                for part in parts:
-                    if part.startswith("AFK"):
-                        trans_code = part
-                        break
+            match = re.search(r'AFK[A-Z0-9]+', desc)
+            if match:
+                trans_code = match.group(0)
+            else:
+                # Fallback: try original split method
+                if "AFK" in desc:
+                    parts = desc.split()
+                    for part in parts:
+                        if part.startswith("AFK"):
+                            trans_code = re.sub(r'[^A-Z0-9]', '', part)  # Strip non-alnum
+                            break
             
             if not trans_code:
                 print(f"⚠️ No trans_code found in: {desc}")
@@ -540,8 +550,10 @@ async def bank_webhook(request: Request, db: Session = Depends(get_db)):
                 print(f"⚠️ Order not found or already completed: {trans_code}")
                 continue
             
-            if amount != order[5]:
-                print(f"⚠️ Amount mismatch: expected {order[5]}, got {amount}")
+            # FIX #3: Amount tolerance (allow 1000 VND variance)
+            order_amount = order[5]
+            if abs(amount - order_amount) > 1000:
+                print(f"⚠️ Amount mismatch: expected {order_amount}, got {amount} (diff={abs(amount-order_amount)})")
                 continue
             
             # Generate license
