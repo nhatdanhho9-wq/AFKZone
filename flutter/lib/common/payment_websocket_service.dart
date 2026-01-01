@@ -73,12 +73,7 @@ class PaymentWebSocketService {
       final type = data['type'];
       
       if (type == 'payment_complete') {
-        final notification = PaymentNotification(
-          orderId: data['order_id'] ?? '',
-          licenseKey: data['license_key'] ?? '',
-          expiresAt: data['expires_at'],
-          message: data['message'] ?? 'Thanh toán thành công!',
-        );
+        final notification = PaymentNotification.fromWebSocket(data);
         
         _onPaymentComplete?.call(notification);
         
@@ -152,7 +147,7 @@ class PaymentWebSocketService {
 class PaymentNotification {
   final String orderId;
   final String licenseKey;
-  final int? expiresAt;
+  final int? expiresAt; // Stored as epoch ms internally
   final String message;
   
   PaymentNotification({
@@ -161,6 +156,33 @@ class PaymentNotification {
     this.expiresAt,
     required this.message,
   });
+  
+  /// Factory to parse expires_at which can be ISO string or int
+  factory PaymentNotification.fromWebSocket(Map<String, dynamic> data) {
+    int? expiresAtMs;
+    final raw = data['expires_at'];
+    if (raw != null) {
+      if (raw is String) {
+        // ISO 8601 string from server
+        try {
+          final dt = DateTime.parse(raw);
+          expiresAtMs = dt.millisecondsSinceEpoch;
+        } catch (e) {
+          print('❌ Error parsing ISO expires_at: $e');
+        }
+      } else if (raw is int) {
+        // Legacy epoch ms
+        expiresAtMs = raw;
+      }
+    }
+    
+    return PaymentNotification(
+      orderId: data['order_id'] ?? '',
+      licenseKey: data['license_key'] ?? '',
+      expiresAt: expiresAtMs,
+      message: data['message'] ?? 'Thanh toán thành công!',
+    );
+  }
   
   String get formattedExpiryDate {
     if (expiresAt == null) return 'N/A';
