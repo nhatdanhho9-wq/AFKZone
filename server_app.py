@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Header, Depends, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 # Tier to max_devices mapping
@@ -1574,6 +1575,8 @@ async def casso_webhook_handler(request: Request, db: Session = Depends(get_db))
         
         return {"success": True, "results": results}
     
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
         logging.error(f"Webhook error: {e}")
