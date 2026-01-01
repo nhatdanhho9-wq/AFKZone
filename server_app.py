@@ -1233,7 +1233,7 @@ def bulk_create_licenses(req: BulkLicenseCreate, token: dict = Depends(verify_to
     license_keys = []
     for _ in range(req.count):
         key = f"AFK-{req.tier.upper()}-{secrets.token_hex(12).upper()}"
-        expires_timestamp = int((datetime.now() + timedelta(days=req.duration_days)).timestamp() * 1000)
+        expires_dt = datetime.now() + timedelta(days=req.duration_days)
 
         db.execute(text("""
             INSERT INTO licenses (license_key, tier, duration_days, expires_at, max_devices, created_by, notes)
@@ -1242,7 +1242,7 @@ def bulk_create_licenses(req: BulkLicenseCreate, token: dict = Depends(verify_to
             "key": key,
             "tier": req.tier,
             "days": req.duration_days,
-            "exp": expires_timestamp,
+            "exp": expires_dt,
             "devices": req.max_devices,
             "note": req.note
         })
@@ -1265,8 +1265,7 @@ def airdrop_licenses(req: LicenseAirdrop, token: dict = Depends(verify_token), d
     for device_id in req.device_ids:
         key = f"AFK-{req.tier.upper()}-{secrets.token_hex(12).upper()}"
         now = datetime.now()
-        expires = now + timedelta(days=req.duration_days)
-        expires_timestamp = int(expires.timestamp() * 1000)
+        expires_dt = now + timedelta(days=req.duration_days)
 
         # Create license
         db.execute(text("""
@@ -1276,7 +1275,7 @@ def airdrop_licenses(req: LicenseAirdrop, token: dict = Depends(verify_token), d
             "key": key,
             "tier": req.tier,
             "days": req.duration_days,
-            "exp": expires_timestamp,
+            "exp": expires_dt,
             "dev": device_id,
             "now": now,
             "note": req.note
@@ -1290,7 +1289,7 @@ def airdrop_licenses(req: LicenseAirdrop, token: dict = Depends(verify_token), d
         """), {
             "key": key,
             "tier": req.tier,
-            "exp": expires_timestamp,
+            "exp": expires_dt,
             "dev": device_id
         })
 
@@ -1404,17 +1403,18 @@ def admin_extend_license(license_key: str, additional_days: int, token: dict = D
     if not result:
         raise HTTPException(status_code=404, detail="License not found")
 
-    # ALWAYS extend from current expires_at (even if expired)
-    current_exp_timestamp = result[0]
-    current_exp = datetime.fromtimestamp(current_exp_timestamp / 1000)
+    # Use to_datetime for proper parsing
+    current_exp = to_datetime(result[0])
+    if not current_exp:
+        raise HTTPException(status_code=500, detail="Invalid expires_at in database")
+    
     new_exp = current_exp + timedelta(days=additional_days)
-    new_exp_timestamp = int(new_exp.timestamp() * 1000)
 
     db.execute(text(
         "UPDATE licenses SET expires_at=:exp, duration_days=:total_days WHERE license_key=:key"
     ), {
-        "exp": new_exp_timestamp,
-        "total_days": result[1] + additional_days,
+        "exp": new_exp,
+        "total_days": (result[1] or 0) + additional_days,
         "key": license_key
     })
 

@@ -4,6 +4,12 @@ info:
   version: 2.2.0
   description: |
     API for managing AFK Zone licenses, payments, and devices.
+openapi: 3.0.3
+info:
+  title: AFK Zone License API
+  version: 2.2.0
+  description: |
+    API for managing AFK Zone licenses, payments, and devices.
     
     **Contract Status**: Frozen
     **Date Fixed**: 2026-01-01
@@ -14,9 +20,9 @@ servers:
   - url: https://api.afkzone.cloud
     description: Production Server
 
-security:
-  - BearerAuth: []
-  - AdminKey: []
+# NOTE: No global security - public endpoints don't require auth
+# Admin endpoints specify security: BearerAuth individually
+
 components:
   securitySchemes:
     BearerAuth:
@@ -328,6 +334,10 @@ paths:
         - in: query
           name: device_id
           schema: {type: string}
+        - in: query
+          name: fingerprint
+          schema: {type: string}
+          description: Device fingerprint (optional)
       responses:
         200:
           description: License history
@@ -512,6 +522,7 @@ paths:
     post:
       summary: Log connection event
       tags: [Client]
+      security: []  # Public endpoint
       requestBody:
         required: true
         content:
@@ -520,8 +531,13 @@ paths:
               type: object
               properties:
                 device_id: {type: string}
+                remote_id: {type: string}
                 peer_id: {type: string}
                 connection_type: {type: string}
+                action: {type: string, enum: [connect, disconnect]}
+                license_key: {type: string}
+                ip_address: {type: string}
+              required: [device_id]
       responses:
         200:
           description: Logged successfully
