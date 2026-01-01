@@ -4,17 +4,12 @@ info:
   version: 2.2.0
   description: |
     API for managing AFK Zone licenses, payments, and devices.
-openapi: 3.0.3
-info:
-  title: AFK Zone License API
-  version: 2.2.0
-  description: |
-    API for managing AFK Zone licenses, payments, and devices.
     
     **Contract Status**: Frozen
     **Date Fixed**: 2026-01-01
     **Canonical Webhook**: `/webhook/casso`
     **Date Format**: ISO 8601
+
 
 servers:
   - url: https://api.afkzone.cloud

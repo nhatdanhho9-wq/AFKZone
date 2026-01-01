@@ -1281,7 +1281,8 @@ def airdrop_licenses(req: LicenseAirdrop, token: dict = Depends(verify_token), d
             "note": req.note
         })
 
-        # Update device
+        # Update device (devices.license_expires_at is bigint, need epoch ms)
+        expires_epoch_ms = int(expires_dt.timestamp() * 1000)
         db.execute(text("""
             UPDATE devices
             SET license_key=:key, license_status='active', license_tier=:tier, license_expires_at=:exp
@@ -1289,7 +1290,7 @@ def airdrop_licenses(req: LicenseAirdrop, token: dict = Depends(verify_token), d
         """), {
             "key": key,
             "tier": req.tier,
-            "exp": expires_dt,
+            "exp": expires_epoch_ms,
             "dev": device_id
         })
 
@@ -1422,8 +1423,8 @@ def admin_extend_license(license_key: str, additional_days: int, token: dict = D
 
     return {
         "success": True,
-        "old_expires_at": to_iso(current_exp_timestamp),
-        "new_expires_at": to_iso(new_exp_timestamp),
+        "old_expires_at": to_iso(current_exp),
+        "new_expires_at": to_iso(new_exp),
         "extended_days": additional_days,
         "message": f"License extended by {additional_days} days"
     }
