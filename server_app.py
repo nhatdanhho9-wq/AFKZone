@@ -633,7 +633,8 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
         return payload
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.JWTError:
+    except Exception as e:
+        # Handle both PyJWT 1.x and 2.x error types
         raise HTTPException(status_code=401, detail="Invalid token")
 
 @app.post("/admin/login")
