@@ -553,7 +553,19 @@ async def bank_webhook(request: Request, db: Session = Depends(get_db)):
         
         # Parse body
         data = json.loads(body_str)
-        transactions = data.get("data", [])
+        print(f"📩 Webhook data: {json.dumps(data)[:500]}...")
+        
+        # Handle both array and single object format
+        raw_data = data.get("data", [])
+        if isinstance(raw_data, dict):
+            # Single object (test/V2 format)
+            transactions = [raw_data]
+        elif isinstance(raw_data, list):
+            # Array (production format)
+            transactions = raw_data
+        else:
+            transactions = []
+        
         if not transactions: return {"success":True,"message":"No transactions"}
         for t in transactions:
             amount = int(t.get("amount", 0))

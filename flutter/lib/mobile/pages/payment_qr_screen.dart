@@ -198,17 +198,23 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
       print('Auto-activation error: $e');
     }
 
+    // Set dirty flag so license page reloads history
+    await prefs.setBool('license_history_dirty', true);
+
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.check_circle, color: Colors.green, size: 32),
-            SizedBox(width: 12),
-            Expanded(child: Text('Thanh toán thành công!')),
-          ],
-        ),
+      builder: (context) => Theme(
+        data: ThemeData.light(),  // Force light theme for dialog readability
+        child: AlertDialog(
+          backgroundColor: Colors.white,
+          title: Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.green, size: 32),
+              SizedBox(width: 12),
+              Expanded(child: Text('Thanh toán thành công!', style: TextStyle(color: Colors.black87))),
+            ],
+          ),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -342,7 +348,9 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
             ),
           ),
         ],
-      ),
+        ),
+      ),  // Close AlertDialog
+      ),  // Close Theme
     );
   }
 

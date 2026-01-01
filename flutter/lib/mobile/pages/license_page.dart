@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common/license_service.dart';
 import 'package:flutter_hbb/services/product_service.dart';
 import 'package:flutter_hbb/models/product_model.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'payment_screen.dart';
 import 'dart:io';
 
@@ -15,7 +16,7 @@ class LicensePage extends StatefulWidget {
   _LicensePageState createState() => _LicensePageState();
 }
 
-class _LicensePageState extends State<LicensePage> {
+class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
   final TextEditingController _licenseKeyController = TextEditingController();
   final TextEditingController _transCodeController = TextEditingController();
   bool _isLoading = false;
@@ -30,9 +31,32 @@ class _LicensePageState extends State<LicensePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _checkTrial();
     _loadProducts();
     _loadPurchaseHistory();
+    _checkDirtyFlag();  // Check on init too
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkDirtyFlag();
+    }
+  }
+
+  Future<void> _checkDirtyFlag() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool('license_history_dirty') == true) {
+      await prefs.setBool('license_history_dirty', false);
+      _loadPurchaseHistory();
+    }
   }
 
   Future<void> _loadPurchaseHistory() async {
