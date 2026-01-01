@@ -17,119 +17,6 @@ servers:
 security:
   - BearerAuth: []
   - AdminKey: []
-
-components:
-  securitySchemes:
-    BearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-    AdminKey:
-      type: apiKey
-      in: header
-      name: admin_key
-
-  schemas:
-    StandardResponse:
-      $ref: './schemas/api_response.json'
-    ErrorResponse:
-      $ref: './schemas/error_response.json'
-    
-    LicenseCheckRequest:
-      type: object
-      properties:
-        license_key: {type: string}
-        device_id: {type: string}
-      required: [license_key, device_id]
-
-    LicenseCheckResponse:
-      type: object
-      properties:
-        status: {type: string, enum: [active, expired, revoked]}
-        tier: {type: string}
-        expires_at: {type: string, format: date-time}
-        device_limit: {type: integer}
-
-paths:
-  /check:
-    post:
-      summary: Check license validity
-      tags: [Client]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/LicenseCheckRequest'
-      responses:
-        200:
-          description: License is active
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/LicenseCheckResponse'
-        404:
-          description: License not found
-        410:
-          description: License expired
-
-  /activate-v2:
-    post:
-      summary: Activate license on device (Multi-device support)
-      tags: [Client]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/LicenseCheckRequest'
-      responses:
-        200:
-          description: Activation successful
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/LicenseCheckResponse'
-                  - type: object
-                    properties:
-                      message: {type: string}
-                      device_count: {type: integer}
-
-  /webhook/casso:
-    post:
-      summary: Payment Webhook (Canonical)
-      description: Receives payment notifications from Casso (MB Bank) via Secure Token.
-      tags: [Webhook]
-      parameters:
-        - in: header
-          name: secure-token
-          schema: {type: string}
-          required: true
-          description: Must match CASSO_WEBHOOK_TOKEN env var
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                data:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      amount: {type: integer}
-                      description: {type: string}
-                      tid: {type: string}
-      responses:
-        200:
-          description: Processed successfully
-          content:
-            application/json:
-              schema:
-                type: object
-
 components:
   securitySchemes:
     BearerAuth:
@@ -372,6 +259,13 @@ paths:
       responses:
         200:
           description: Logout successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  message: {type: string}
 
   /license/info:
     get:
@@ -388,7 +282,17 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LicenseCheckResponse'
+                type: object
+                properties:
+                  license_key: {type: string}
+                  tier: {type: string}
+                  duration_days: {type: integer}
+                  activated_at: {type: string, format: date-time}
+                  expires_at: {type: string, format: date-time}
+                  max_devices: {type: integer}
+                  device_count: {type: integer}
+                  devices_remaining: {type: integer}
+                  is_revoked: {type: boolean}
 
   /license/recover:
     post:
@@ -413,6 +317,7 @@ paths:
                 properties:
                   license_key: {type: string}
                   tier: {type: string}
+                  duration_days: {type: integer}
                   expires_at: {type: string, format: date-time}
 
   /user/history:
@@ -438,7 +343,37 @@ paths:
                       properties:
                         license_key: {type: string}
                         tier: {type: string}
+                        duration_days: {type: integer}
                         expires_at: {type: string, format: date-time}
+                        status: {type: string, enum: [active, expired, revoked]}
+
+  /payment/create:
+    post:
+      summary: Create ZaloPay order
+      tags: [Client, Payment]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tier: {type: string}
+                duration_days: {type: integer}
+                device_id: {type: string}
+              required: [tier, duration_days, device_id]
+      responses:
+        200:
+          description: Order created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order_id: {type: string}
+                  amount: {type: integer}
+                  zp_trans_token: {type: string}
+                  order_url: {type: string}
 
   /payment/bank/create:
     post:
@@ -489,8 +424,14 @@ paths:
               schema:
                 type: object
                 properties:
+                  trans_code: {type: string}
                   status: {type: string, enum: [pending, success, expired]}
                   license_key: {type: string, nullable: true}
+                  amount: {type: integer}
+                  tier: {type: string}
+                  duration_days: {type: integer}
+                  created_at: {type: string, format: date-time}
+                  paid_at: {type: string, format: date-time}
 
   /products:
     get:
@@ -553,6 +494,7 @@ paths:
                 type: object
                 properties:
                   total: {type: integer}
+                  unread: {type: integer}
                   notifications:
                     type: array
                     items:
@@ -563,6 +505,8 @@ paths:
                         message: {type: string}
                         type: {type: string}
                         created_at: {type: string, format: date-time}
+                        expires_at: {type: string, format: date-time}
+                        is_read: {type: boolean}
 
   /connection/log:
     post:
@@ -581,3 +525,9 @@ paths:
       responses:
         200:
           description: Logged successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string}
