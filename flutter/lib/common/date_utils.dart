@@ -1,7 +1,7 @@
 /// Date parsing utilities for AFK Zone
 /// Handles both ISO 8601 strings and legacy epoch milliseconds
 
-class DateUtils {
+class AfkDateUtils {
   /// Parse expires_at from API which can be ISO string or int (epoch ms)
   /// Returns epoch milliseconds for storage
   static int? parseExpiresAt(dynamic value) {
