@@ -169,6 +169,12 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
       final result = await LicenseService.activateLicense(licenseKey, deviceId);
       if (result != null) {
         await prefs.setBool('afk_license_active', true);
+        if (result['license_key'] != null) {
+          await prefs.setString('afk_license_key', result['license_key']);
+        }
+        if (result['tier'] != null) {
+          await prefs.setString('afk_license_tier', result['tier']);
+        }
         
         // Handle max_devices - API now returns max_devices, fallback to device_limit
         maxDevices = result['max_devices'] ?? result['device_limit'] ?? 1;

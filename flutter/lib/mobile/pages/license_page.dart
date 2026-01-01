@@ -27,6 +27,10 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
   List<Product> _products = [];
   bool _productsLoading = true;
   List<Map<String, dynamic>> _purchaseHistory = [];
+  Map<String, dynamic>? _activeLicense; // Local active license
+  List<Map<String, dynamic>> _paidHistory = [];
+  List<Map<String, dynamic>> _trialHistory = [];
+  bool _showTrials = false;
 
   @override
   void initState() {
@@ -34,7 +38,9 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _checkTrial();
     _loadProducts();
+    _loadActiveLicense(); // Load local active state
     _loadPurchaseHistory();
+    _checkDirtyFlag();  // Check on init too
     _checkDirtyFlag();  // Check on init too
   }
 
@@ -56,16 +62,53 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
     if (prefs.getBool('license_history_dirty') == true) {
       await prefs.setBool('license_history_dirty', false);
       _loadPurchaseHistory();
+      _loadActiveLicense(); // Also reload active license
     }
+  }
+
+  Future<void> _loadActiveLicense() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool('afk_license_active') == true) {
+      setState(() {
+        _activeLicense = {
+          'license_key': prefs.getString('afk_license_key') ?? 'Unknown',
+          'tier': prefs.getString('afk_license_tier') ?? 'basic',
+          'expires_at': _formatDate(prefs.getInt('afk_license_expires_at')),
+          'status': 'active',
+          'is_local': true,
+        };
+      });
+    } else {
+      setState(() => _activeLicense = null);
+    }
+  }
+
+  String _formatDate(int? millis) {
+    if (millis == null) return '';
+    return DateTime.fromMillisecondsSinceEpoch(millis).toIso8601String().split('T')[0];
   }
 
   Future<void> _loadPurchaseHistory() async {
     try {
       final deviceId = await _getDeviceId();
-      final history = await LicenseService.getPurchaseHistory(deviceId);
+      // Fetch ALL history including trials and expired
+      final history = await LicenseService.getPurchaseHistory(
+        deviceId, 
+        includeTrial: true, 
+        includeExpired: true
+      );
+      
       if (mounted) {
         setState(() {
           _purchaseHistory = history;
+          // Split into Paid vs Trial/Expired
+          _paidHistory = history.where((l) => 
+            l['tier'] != 'trial' && l['source'] != 'trial'
+          ).toList();
+          
+          _trialHistory = history.where((l) => 
+            l['tier'] == 'trial' || l['source'] == 'trial'
+          ).toList();
         });
       }
     } catch (e) {
@@ -118,11 +161,13 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
     }
   }
 
-  Widget _buildLicenseHistoryItem(Map<String, dynamic> license) {
+  Widget _buildLicenseHistoryItem(Map<String, dynamic> license, {bool isHighlight = false}) {
     final licenseKey = license['license_key'] ?? '';
     final tier = license['tier'] ?? 'unknown';
     final expiresAt = license['expires_at'] ?? '';
     final status = license['status'] ?? 'unknown';
+    
+    // ... rest of method
     
     Color statusColor = Colors.grey;
     String statusText = status;
@@ -138,9 +183,9 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
       margin: EdgeInsets.only(bottom: 8),
       padding: EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.grey[100],
+        color: isHighlight ? Colors.green.shade50 : Colors.grey[100],
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey[300]!),
+        border: Border.all(color: isHighlight ? Colors.green.shade200 : Colors.grey[300]!),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -660,16 +705,53 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
                           ),
                         ],
                       ),
-                      if (_purchaseHistory.isNotEmpty) ...[
+                      // 1. Active License (Local)
+                      if (_activeLicense != null) ...[
+                        SizedBox(height: 16),
+                        Divider(thickness: 1),
+                        SizedBox(height: 8),
+                         Row(
+                          children: [
+                            Icon(Icons.check_circle, color: Colors.green, size: 16),
+                            SizedBox(width: 8),
+                            Text(
+                              'License đang kích hoạt:',
+                              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green[800]),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: 8),
+                        _buildLicenseHistoryItem(_activeLicense!, isHighlight: true),
+                      ],
+
+                      // 2. Paid History (Server)
+                      if (_paidHistory.isNotEmpty) ...[
                         SizedBox(height: 16),
                         Divider(),
                         SizedBox(height: 8),
                         Text(
-                          'License của bạn:',
+                          'Lịch sử mua hàng:',
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
                         SizedBox(height: 8),
-                        ..._purchaseHistory.map((license) => _buildLicenseHistoryItem(license)).toList(),
+                        ..._paidHistory.map((license) => _buildLicenseHistoryItem(license)).toList(),
+                      ],
+
+                      // 3. Trials (Collapsed)
+                      if (_purchaseHistory.isNotEmpty || _trialHistory.isNotEmpty) ...[
+                         SizedBox(height: 8),
+                         TextButton.icon(
+                           onPressed: () => setState(() => _showTrials = !_showTrials),
+                           icon: Icon(_showTrials ? Icons.expand_less : Icons.expand_more, size: 16),
+                           label: Text(_showTrials ? 'Ẩn lịch sử dùng thử' : 'Xem lịch sử dùng thử (${_trialHistory.length})'),
+                           style: TextButton.styleFrom(
+                             foregroundColor: Colors.grey,
+                             padding: EdgeInsets.zero,
+                             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                           ),
+                         ),
+                         if (_showTrials)
+                           ..._trialHistory.map((license) => _buildLicenseHistoryItem(license)).toList(),
                       ],
                     ],
                   ),

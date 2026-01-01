@@ -2,29 +2,49 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:crypto/crypto.dart';
+import 'package:uuid/uuid.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
 
 class LicenseService {
   static const String API_URL = 'https://api.afkzone.cloud';
 
-  // Get device fingerprint for trial abuse prevention
+  // Get persistent UUID from storage (survives app restarts)
+  static Future<String> _getPersistentUuid() async {
+    final prefs = await SharedPreferences.getInstance();
+    String? uuid = prefs.getString('device_uuid');
+    if (uuid == null) {
+      uuid = Uuid().v4();
+      await prefs.setString('device_uuid', uuid);
+    }
+    return uuid;
+  }
+
+  // Get device fingerprint for trial abuse prevention and license binding
   static Future<String> getDeviceFingerprint() async {
     final deviceInfo = DeviceInfoPlugin();
     String fingerprint = '';
+    String uuid = await _getPersistentUuid();
 
     try {
       if (Platform.isAndroid) {
         final androidInfo = await deviceInfo.androidInfo;
-        final data = '${androidInfo.id}_${androidInfo.model}_${androidInfo.device}';
+        // Use androidId as primary stable ID, fallback to uuid if null
+        final stableId = androidInfo.id ?? uuid;
+        final data = '${stableId}_${uuid}'; // Combine both for uniqueness + persistence
         fingerprint = sha256.convert(utf8.encode(data)).toString();
       } else if (Platform.isIOS) {
         final iosInfo = await deviceInfo.iosInfo;
-        final data = '${iosInfo.identifierForVendor}_${iosInfo.model}';
+        final stableId = iosInfo.identifierForVendor ?? uuid;
+        final data = '${stableId}_${uuid}';
         fingerprint = sha256.convert(utf8.encode(data)).toString();
+      } else {
+        // Desktop/Web fallback
+        fingerprint = sha256.convert(utf8.encode(uuid)).toString();
       }
     } catch (e) {
       print('Error getting device fingerprint: $e');
-      fingerprint = 'unknown_device';
+      fingerprint = sha256.convert(utf8.encode(uuid)).toString();
     }
 
     return fingerprint;
@@ -227,11 +247,23 @@ class LicenseService {
   }
 
   // Get purchase history for a device
-  static Future<List<Map<String, dynamic>>> getPurchaseHistory(String deviceId) async {
+  static Future<List<Map<String, dynamic>>> getPurchaseHistory(
+    String deviceId, {
+    bool includeTrial = false,
+    bool includeExpired = false,
+  }) async {
     try {
       final fingerprint = await getDeviceFingerprint();
+      final queryParams = {
+        'device_id': deviceId,
+        'fingerprint': fingerprint,
+        'include_trial': includeTrial.toString(),
+        'include_expired': includeExpired.toString(),
+      };
+      final uri = Uri.parse('$API_URL/user/history').replace(queryParameters: queryParams);
+      
       final response = await http.get(
-        Uri.parse('$API_URL/user/history?device_id=$deviceId&fingerprint=$fingerprint'),
+        uri,
         headers: {'Content-Type': 'application/json'},
       ).timeout(Duration(seconds: 10));
 

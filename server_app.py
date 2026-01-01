@@ -1948,31 +1948,95 @@ def get_license_info(license_key: str, db: Session = Depends(get_db)):
     }
 
 @app.get("/user/history")
-def get_user_history(device_id: str, fingerprint: Optional[str] = None, db: Session = Depends(get_db)):
-    """Get purchase history for a device"""
+def get_user_history(
+    device_id: str, 
+    fingerprint: Optional[str] = None, 
+    include_trial: bool = False,
+    include_expired: bool = False,
+    offset: int = 0,
+    limit: int = 20,
+    db: Session = Depends(get_db)
+):
+    """Get purchase history for a device (persistent even after logout)"""
     fingerprint = fingerprint or ""
-    results = db.execute(text("""
-        SELECT DISTINCT l.license_key, l.tier, l.duration_days, l.expires_at, l.is_revoked, l.created_at
-        FROM licenses l
-        LEFT JOIN license_devices ld ON l.license_key = ld.license_key
-        WHERE ld.device_id = :device_id
-           OR l.device_id = :device_id
-           OR (:fingerprint != '' AND l.device_fingerprint = :fingerprint)
-        ORDER BY l.created_at DESC
-        LIMIT 20
-    """), {"device_id": device_id, "fingerprint": fingerprint}).fetchall()
+    
+    # Logic:
+    # 1. Get Paid licenses from bank_orders (persistent link to device_id)
+    # 2. Get Trial/Other licenses where device is owner or currently active
+    # 3. Union or distinct combination
+    
+    # For simplicity and performance, we'll use a UNION ALL approach or a robust OR
+    # But to ensuring bank_orders are the primary source, we'll join.
+    
+    # Query:
+    # Select licenses linked via bank_orders OR directly via device_id/fingerprint
+    
+    sql = """
+    SELECT DISTINCT 
+        l.license_key, l.tier, l.duration_days, l.expires_at, l.is_revoked, 
+        l.created_at, l.source, l.max_devices,
+        (SELECT COUNT(*) FROM license_devices ld WHERE ld.license_key = l.license_key) as device_count,
+        b.paid_at
+    FROM licenses l
+    LEFT JOIN bank_orders b ON l.license_key = b.license_key
+    LEFT JOIN license_devices ld ON l.license_key = ld.license_key
+    WHERE 
+        (b.device_id = :device_id AND b.status IN ('success', 'completed'))
+        OR ld.device_id = :device_id
+        OR l.device_id = :device_id
+        OR (:fingerprint != '' AND l.device_fingerprint = :fingerprint)
+    ORDER BY l.created_at DESC
+    LIMIT :limit OFFSET :offset
+    """
+    
+    results = db.execute(text(sql), {
+        "device_id": device_id, 
+        "fingerprint": fingerprint,
+        "limit": limit,
+        "offset": offset
+    }).fetchall()
 
     licenses = []
+    now = datetime.now()
+    
     for row in results:
+        license_key = row[0]
+        tier = row[1]
+        duration = row[2]
         expires_at = to_datetime(row[3])
-        is_expired = expires_at and expires_at < datetime.now()
-        status = "revoked" if row[4] else ("expired" if is_expired else "active")
+        is_revoked = row[4]
+        created_at = row[5]
+        source = row[6]
+        max_devices = row[7]
+        device_count = row[8]
+        paid_at = row[9]
+        
+        is_expired = expires_at and expires_at < now
+        
+        # Filter Logic
+        if not include_trial and (tier == 'trial' or source == 'trial'):
+            continue
+        if not include_expired and is_expired:
+            continue
+            
+        # Determine status
+        status = "active"
+        if is_revoked:
+            status = "revoked"
+        elif is_expired:
+            status = "expired"
+            
         licenses.append({
-            "license_key": row[0],
-            "tier": row[1],
-            "duration_days": row[2],
-            "expires_at": to_iso(row[3]),
-            "status": status
+            "license_key": license_key,
+            "tier": tier,
+            "duration_days": duration,
+            "expires_at": to_iso(expires_at),
+            "status": status,
+            "paid_at": to_iso(paid_at) if paid_at else None,
+            "source": source,
+            "device_count": device_count,
+            "max_devices": max_devices,
+            "created_at": to_iso(created_at)
         })
 
     return {"licenses": licenses}
