@@ -479,32 +479,59 @@ async def bank_webhook(request: Request, db: Session = Depends(get_db)):
         secret = BANK_CONFIG['casso_token']
         auth_valid = False
         
+        print(f"=== CASSO WEBHOOK DEBUG ===")
+        print(f"x-casso-signature present: {bool(signature_header)}")
+        print(f"secure-token present: {bool(secure_token)}")
+        
         if signature_header:
-            # Casso Webhook V2: verify signature
-            sig_parts = {}
-            for part in signature_header.split(","):
-                if "=" in part:
-                    k, v = part.split("=", 1)
-                    sig_parts[k] = v
-            
-            timestamp = sig_parts.get("t", "")
-            signature = sig_parts.get("v1", "")
-            
-            signed_payload = f"{timestamp}.{body_str}"
-            expected_signature = hmac.new(
-                secret.encode(),
-                signed_payload.encode(),
-                hashlib.sha512
-            ).hexdigest()
-            
-            print(f"=== CASSO WEBHOOK V2 ===")
-            print(f"Signature received: {signature[:50] if signature else 'NONE'}...")
-            print(f"Signature expected: {expected_signature[:50]}...")
-            
-            if signature == expected_signature:
-                auth_valid = True
-                print("✅ Signature verified!")
-        elif secure_token:
+            # Check if signature has t=...,v1=... format
+            if "t=" in signature_header and "v1=" in signature_header:
+                # Casso Webhook V2: parse structured signature
+                sig_parts = {}
+                for part in signature_header.split(","):
+                    if "=" in part:
+                        k, v = part.split("=", 1)
+                        sig_parts[k] = v
+                
+                timestamp = sig_parts.get("t", "")
+                signature = sig_parts.get("v1", "")
+                
+                # Try SHA512 first (original)
+                signed_payload = f"{timestamp}.{body_str}"
+                expected_sha512 = hmac.new(secret.encode(), signed_payload.encode(), hashlib.sha512).hexdigest()
+                expected_sha256 = hmac.new(secret.encode(), signed_payload.encode(), hashlib.sha256).hexdigest()
+                
+                print(f"Timestamp: {timestamp}")
+                print(f"Signature received: {signature[:50]}...")
+                print(f"Expected SHA512: {expected_sha512[:50]}...")
+                print(f"Expected SHA256: {expected_sha256[:50]}...")
+                
+                if signature == expected_sha512 or signature == expected_sha256:
+                    auth_valid = True
+                    print("✅ Structured signature verified!")
+            else:
+                # Raw signature (no t=,v1= format) - try multiple algorithms
+                signature = signature_header
+                
+                # Try with body_str
+                expected_sha512_str = hmac.new(secret.encode(), body_str.encode(), hashlib.sha512).hexdigest()
+                expected_sha256_str = hmac.new(secret.encode(), body_str.encode(), hashlib.sha256).hexdigest()
+                
+                # Try with raw body_bytes
+                expected_sha512_bytes = hmac.new(secret.encode(), body_bytes, hashlib.sha512).hexdigest()
+                expected_sha256_bytes = hmac.new(secret.encode(), body_bytes, hashlib.sha256).hexdigest()
+                
+                print(f"Raw signature received: {signature[:50]}...")
+                print(f"Expected SHA512 (str): {expected_sha512_str[:50]}...")
+                print(f"Expected SHA256 (str): {expected_sha256_str[:50]}...")
+                print(f"Expected SHA512 (bytes): {expected_sha512_bytes[:50]}...")
+                print(f"Expected SHA256 (bytes): {expected_sha256_bytes[:50]}...")
+                
+                if signature in [expected_sha512_str, expected_sha256_str, expected_sha512_bytes, expected_sha256_bytes]:
+                    auth_valid = True
+                    print("✅ Raw signature verified!")
+        
+        if not auth_valid and secure_token:
             # Fallback: secure-token header (V1 style)
             if secure_token == secret:
                 auth_valid = True
