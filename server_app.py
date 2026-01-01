@@ -1893,7 +1893,7 @@ def get_user_history(device_id: str, fingerprint: Optional[str] = None, db: Sess
     """Get purchase history for a device"""
     fingerprint = fingerprint or ""
     results = db.execute(text("""
-        SELECT DISTINCT l.license_key, l.tier, l.duration_days, l.expires_at, l.is_revoked
+        SELECT DISTINCT l.license_key, l.tier, l.duration_days, l.expires_at, l.is_revoked, l.created_at
         FROM licenses l
         LEFT JOIN license_devices ld ON l.license_key = ld.license_key
         WHERE ld.device_id = :device_id
