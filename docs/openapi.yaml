@@ -35,6 +35,21 @@ components:
       $ref: './schemas/api_response.json'
     ErrorResponse:
       $ref: './schemas/error_response.json'
+    
+    LicenseCheckRequest:
+      type: object
+      properties:
+        license_key: {type: string}
+        device_id: {type: string}
+      required: [license_key, device_id]
+
+    LicenseCheckResponse:
+      type: object
+      properties:
+        status: {type: string, enum: [active, expired, revoked]}
+        tier: {type: string}
+        expires_at: {type: string, format: date-time}
+        device_limit: {type: integer}
 
 paths:
   /check:
@@ -46,23 +61,101 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                license_key: {type: string}
-                device_id: {type: string}
+              $ref: '#/components/schemas/LicenseCheckRequest'
       responses:
         200:
           description: License is active
-  
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LicenseCheckResponse'
+        404:
+          description: License not found
+        410:
+          description: License expired
+
+  /activate-v2:
+    post:
+      summary: Activate license on device (Multi-device support)
+      tags: [Client]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LicenseCheckRequest'
+      responses:
+        200:
+          description: Activation successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/LicenseCheckResponse'
+                  - type: object
+                    properties:
+                      message: {type: string}
+                      device_count: {type: integer}
+
   /webhook/casso:
     post:
       summary: Payment Webhook (Canonical)
+      description: Receives payment notifications from Casso (MB Bank) via Secure Token.
       tags: [Webhook]
       parameters:
         - in: header
           name: secure-token
           schema: {type: string}
           required: true
+          description: Must match CASSO_WEBHOOK_TOKEN env var
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      amount: {type: integer}
+                      description: {type: string}
+                      tid: {type: string}
       responses:
         200:
           description: Processed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  results: {type: array}
+        401:
+          description: Invalid or missing secure-token
+
+  /admin/licenses/all:
+    get:
+      summary: Get all licenses
+      tags: [Admin]
+      security:
+        - BearerAuth: []
+      responses:
+        200:
+          description: List of licenses
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  licenses:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        license_key: {type: string}
+                        tier: {type: string}
+                        created_at: {type: string, format: date-time}
+
