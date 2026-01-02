@@ -394,8 +394,9 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
             activationResult['license_key'] = licenseKey;
             print('✅ Step 3: Calling onLicenseActivated callback with: ${activationResult.keys}');
             try {
-              if (widget.onLicenseActivated != null) {
-              await widget.onLicenseActivated(activationResult);
+              final handler = widget.onLicenseActivated;
+              if (handler != null) {
+                await handler(activationResult);
               }
               print('✅ Step 3: Callback completed successfully');
               // Only set loading to false after successful callback
