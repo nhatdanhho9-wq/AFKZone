@@ -8,9 +8,9 @@ import 'payment_screen.dart';
 import 'dart:io';
 
 class LicensePage extends StatefulWidget {
-  final Future<void> Function(Map<String, dynamic>) onLicenseActivated;
+  final Future<void> Function(Map<String, dynamic>)? onLicenseActivated;
 
-  const LicensePage({Key? key, required this.onLicenseActivated}) : super(key: key);
+  const LicensePage({Key? key, this.onLicenseActivated}) : super(key: key);
 
   @override
   _LicensePageState createState() => _LicensePageState();
@@ -357,7 +357,9 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
             activationResult['license_key'] = licenseKey;
             print('✅ Step 3: Calling onLicenseActivated callback with: ${activationResult.keys}');
             try {
+              if (widget.onLicenseActivated != null) {
               await widget.onLicenseActivated(activationResult);
+              }
               print('✅ Step 3: Callback completed successfully');
               // Only set loading to false after successful callback
               if (mounted) {
@@ -431,7 +433,9 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
         // Add license_key to result so callback can save it
         result['license_key'] = licenseKey;
         setState(() => _isLoading = false);
-        widget.onLicenseActivated(result);
+        if (widget.onLicenseActivated != null) {
+          widget.onLicenseActivated!(result);
+        }
       } else {
         setState(() {
           _isLoading = false;

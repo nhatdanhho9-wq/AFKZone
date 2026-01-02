@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_hbb/services/payment_service.dart';
 import 'package:flutter_hbb/common/license_service.dart';
 import 'package:flutter_hbb/common/payment_websocket_service.dart';
+import 'package:flutter_hbb/mobile/pages/license_page.dart';
 
 class PaymentQRScreen extends StatefulWidget {
   final String tier;
@@ -340,8 +341,11 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
             icon: Icon(Icons.check_circle, size: 20),
             label: Text('Hoàn tất & Sử dụng'),
             onPressed: () {
-              // Close all screens and go back to home
-              Navigator.of(context).popUntil((route) => route.isFirst);
+              // Navigate to License Page to show active license immediately
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (context) => LicensePage()),
+                (route) => route.isFirst,
+              );
               
               // Show success snackbar
               ScaffoldMessenger.of(context).showSnackBar(
