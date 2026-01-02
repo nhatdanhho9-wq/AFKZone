@@ -1974,7 +1974,7 @@ def get_user_history(
     sql = """
     SELECT DISTINCT 
         l.license_key, l.tier, l.duration_days, l.expires_at, l.is_revoked, 
-        l.created_at, l.source, l.max_devices,
+        l.created_at, b.trans_code as source, l.max_devices,
         (SELECT COUNT(*) FROM license_devices ld WHERE ld.license_key = l.license_key) as device_count,
         b.paid_at
     FROM licenses l
