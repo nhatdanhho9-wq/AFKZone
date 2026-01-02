@@ -6,8 +6,6 @@ import 'package:flutter_hbb/models/product_model.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'payment_screen.dart';
 import 'dart:io';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
 
 class LicensePage extends StatefulWidget {
   final Future<void> Function(Map<String, dynamic>)? onLicenseActivated;
@@ -33,8 +31,6 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
   List<Map<String, dynamic>> _paidHistory = [];
   List<Map<String, dynamic>> _trialHistory = [];
   bool _showTrials = false;
-  List<Map<String, dynamic>> _notifications = [];
-  bool _notificationsLoading = true;
 
   @override
   void initState() {
@@ -44,7 +40,6 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
     _loadProducts();
     _loadActiveLicense(); // Load local active state
     _loadPurchaseHistory();
-    _loadNotifications();
     _checkDirtyFlag();  // Check on init too
     _checkDirtyFlag();  // Check on init too
   }
@@ -316,38 +311,6 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _loadNotifications() async {
-    setState(() => _notificationsLoading = true);
-    try {
-      final response = await http.get(
-        Uri.parse('https://api.afkzone.cloud/public/notifications'),
-        headers: {'Cache-Control': 'no-cache'},
-      ).timeout(Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final data = json.decode(utf8.decode(response.bodyBytes));
-        final List<dynamic> notifsJson = data['notifications'] ?? [];
-        setState(() {
-          _notifications = notifsJson.map((n) => {
-            'id': n['id'],
-            'title': n['title'] ?? '',
-            'message': n['message'] ?? '',
-            'type': n['type'] ?? 'info',
-            'link_url': n['link_url'],
-            'created_at': n['created_at'],
-          }).toList();
-          _notificationsLoading = false;
-        });
-      } else {
-        setState(() => _notificationsLoading = false);
-      }
-    } catch (e) {
-      print('Error loading notifications: $e');
-      setState(() => _notificationsLoading = false);
-    }
-  }
-
-
   Future<void> _checkTrial() async {
     setState(() => _trialLoading = true);
     try {
@@ -489,6 +452,14 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
 
   Future<String> _getDeviceId() async {
     return await LicenseService.getDeviceFingerprint();
+  }
+
+  void _openZalo() {
+    // Open Zalo chat or copy number
+    Clipboard.setData(ClipboardData(text: '0823333374'));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Đã copy số Zalo: 0823333374')),
+    );
   }
 
   @override
@@ -811,7 +782,56 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
 
               SizedBox(height: 24),
 
-              // Notifications - Load from /public/notifications
+              // Contact Card
+              Card(
+                color: Color(0xFFFF6B6B),
+                elevation: 4,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: InkWell(
+                  onTap: _openZalo,
+                  borderRadius: BorderRadius.circular(12),
+                  child: Padding(
+                    padding: EdgeInsets.all(20),
+                    child: Column(
+                      children: [
+                        Icon(Icons.shopping_cart, size: 48, color: Colors.white),
+                        SizedBox(height: 12),
+                        Text(
+                          'Mua License',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          'Zalo: 0823333374',
+                          style: TextStyle(
+                            fontSize: 18,
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          'Nhấn để copy số Zalo',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.white70,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+              SizedBox(height: 16),
+
+              // Pricing Info - Load from API
               Card(
                 elevation: 2,
                 shape: RoundedRectangleBorder(
@@ -822,26 +842,20 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Icon(Icons.info_outline, color: Colors.blue, size: 20),
-                          SizedBox(width: 8),
-                          Text(
-                            'Thông tin & Thông báo',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
+                      Text(
+                        'Bảng giá',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       SizedBox(height: 12),
-                      if (_notificationsLoading)
+                      if (_productsLoading)
                         Center(child: CircularProgressIndicator())
-                      else if (_notifications.isEmpty)
-                        Text('Không có thông báo mới', style: TextStyle(color: Colors.grey[600]))
+                      else if (_products.isEmpty)
+                        Text('Không có thông tin giá', style: TextStyle(color: Colors.grey))
                       else
-                        ..._buildNotificationsList(),
+                        ..._buildPricingRowsFromAPI(),
                     ],
                   ),
                 ),
@@ -892,99 +906,6 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
       return '$tierName - ${trialProduct.maxDevicesDisplay}';
     }
     return 'Basic - Tối đa 1 thiết bị'; // Fallback
-  }
-
-  List<Widget> _buildNotificationsList() {
-    return _notifications.map((n) {
-      Color typeColor = _getNotificationColor(n['type']);
-      IconData typeIcon = _getNotificationIcon(n['type']);
-
-      return Container(
-        margin: EdgeInsets.only(bottom: 12),
-        padding: EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: typeColor.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: typeColor.withOpacity(0.3)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(typeIcon, color: typeColor, size: 18),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    n['title'],
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      color: typeColor,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            if (n['message'].toString().isNotEmpty) ...[
-              SizedBox(height: 6),
-              Text(
-                n['message'],
-                style: TextStyle(fontSize: 13, color: Colors.grey[800]),
-              ),
-            ],
-            if (n['link_url'] != null && n['link_url'].toString().isNotEmpty) ...[
-              SizedBox(height: 8),
-              InkWell(
-                onTap: () {
-                  // Copy link to clipboard
-                  Clipboard.setData(ClipboardData(text: n['link_url']));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Đã copy link')),
-                  );
-                },
-                child: Text(
-                  'Link: ${n['link_url']}',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.blue,
-                    decoration: TextDecoration.underline,
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-      );
-    }).toList();
-  }
-
-  Color _getNotificationColor(String type) {
-    switch (type.toLowerCase()) {
-      case 'warning':
-        return Colors.orange;
-      case 'success':
-        return Colors.green;
-      case 'error':
-        return Colors.red;
-      case 'info':
-      default:
-        return Colors.blue;
-    }
-  }
-
-  IconData _getNotificationIcon(String type) {
-    switch (type.toLowerCase()) {
-      case 'warning':
-        return Icons.warning_amber;
-      case 'success':
-        return Icons.check_circle;
-      case 'error':
-        return Icons.error;
-      case 'info':
-      default:
-        return Icons.info;
-    }
   }
 
   List<Widget> _buildPricingRowsFromAPI() {
