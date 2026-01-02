@@ -2386,6 +2386,45 @@ def get_detailed_devices(token: dict = Depends(verify_token), db: Session = Depe
 
     return {"devices": devices}
 
+@app.get("/admin/analytics/revenue")
+def get_revenue_analytics(period: str = "30d", token: dict = Depends(verify_token), db: Session = Depends(get_db)):
+    """Get revenue analytics from bank_orders with safe fallback"""
+    try:
+        days = int(period.replace("d", "")) if "d" in period else 30
+        
+        # Total revenue (all time)
+        total_result = db.execute(text(
+            "SELECT COALESCE(SUM(amount), 0) FROM bank_orders WHERE status = 'success'"
+        )).scalar() or 0
+        
+        # Revenue for period
+        period_result = db.execute(text(
+            "SELECT COALESCE(SUM(amount), 0) FROM bank_orders WHERE status = 'success' AND paid_at >= NOW() - INTERVAL :days DAY"
+        ), {"days": days}).scalar() or 0
+        
+        # Daily breakdown (last 7 days)
+        daily_result = db.execute(text("""
+            SELECT DATE(paid_at) as date, COALESCE(SUM(amount), 0) as revenue
+            FROM bank_orders WHERE status = 'success' AND paid_at >= NOW() - INTERVAL '7 days'
+            GROUP BY DATE(paid_at) ORDER BY date DESC
+        """)).fetchall()
+        
+        # Revenue by tier
+        tier_result = db.execute(text("""
+            SELECT tier, COALESCE(SUM(amount), 0) as revenue, COUNT(*) as count
+            FROM bank_orders WHERE status = 'success' GROUP BY tier
+        """)).fetchall()
+        
+        return {
+            "total_revenue": total_result,
+            "period_revenue": period_result,
+            "period_days": days,
+            "daily": [{"date": str(r[0]), "revenue": r[1]} for r in daily_result],
+            "by_tier": [{"tier": r[0], "revenue": r[1], "count": r[2]} for r in tier_result]
+        }
+    except Exception as e:
+        return {"total_revenue": 0, "period_revenue": 0, "period_days": 30, "daily": [], "by_tier": [], "error": str(e)}
+
 @app.get("/admin/trial-devices")
 def get_trial_devices(token: dict = Depends(verify_token), db: Session = Depends(get_db)):
     """Get all trial devices"""
