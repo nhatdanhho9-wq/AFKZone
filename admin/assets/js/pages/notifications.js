@@ -49,19 +49,19 @@ function renderTable(notifications) {
 
     const rows = notifications.map(n => `
         <tr>
-            <td><strong>\${escapeHtml(n.title||'N/A')}</strong></td>
-            <td>\${escapeHtml(n.message||'')}</td>
-            <td><span class="badge badge-\${n.type||'info'}">\${escapeHtml(n.type||'info')}</span></td>
-            <td>\${escapeHtml(n.target||'all')}</td>
-            <td>\${escapeHtml(formatDate(n.expires_at))}</td>
-            <td>\${escapeHtml(formatDate(n.created_at))}</td>
+            <td><strong>${escapeHtml(n.title||'N/A')}</strong></td>
+            <td>${escapeHtml(n.message||'')}</td>
+            <td><span class="badge badge-${n.type||'info'}">${escapeHtml(n.type||'info')}</span></td>
+            <td>${escapeHtml(n.target||'all')}</td>
+            <td>${escapeHtml(formatDate(n.expires_at))}</td>
+            <td>${escapeHtml(formatDate(n.created_at))}</td>
             <td>
-                <button onclick="window.deleteNotifBtn(\${n.id})" style="padding:0.25rem 0.75rem;background:var(--danger);color:white;border-radius:4px;font-size:12px">Delete</button>
+                <button onclick="window.deleteNotifBtn(${n.id})" style="padding:0.25rem 0.75rem;background:var(--danger);color:white;border-radius:4px;font-size:12px">Delete</button>
             </td>
         </tr>
     `).join('');
 
-    table.innerHTML = `<table><thead><tr><th>Title</th><th>Message</th><th>Type</th><th>Target</th><th>Expires</th><th>Created</th><th>Actions</th></tr></thead><tbody>\${rows}</tbody></table>`;
+    table.innerHTML = `<table><thead><tr><th>Title</th><th>Message</th><th>Type</th><th>Target</th><th>Expires</th><th>Created</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 function showNotifModal() {
@@ -102,7 +102,7 @@ function showNotifModal() {
             modal.style.display = 'none';
             loadNotifications();
         } catch (error) {
-            showToast(`Failed: \${error.message}`, 'error');
+            showToast(`Failed: ${error.message}`, 'error');
         }
     });
 }
@@ -114,7 +114,7 @@ window.deleteNotifBtn = function(id) {
             showToast('Notification deleted', 'success');
             loadNotifications();
         } catch (error) {
-            showToast(`Failed: \${error.message}`, 'error');
+            showToast(`Failed: ${error.message}`, 'error');
         }
     });
 };
