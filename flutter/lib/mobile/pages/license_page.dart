@@ -47,6 +47,8 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _licenseKeyController.dispose();
+    _transCodeController.dispose();
     super.dispose();
   }
 
@@ -933,11 +935,5 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
         ],
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    _licenseKeyController.dispose();
-    super.dispose();
   }
 }
