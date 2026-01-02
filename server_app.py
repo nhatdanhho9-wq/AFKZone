@@ -474,7 +474,7 @@ async def bank_webhook(request: Request, db: Session = Depends(get_db)):
         
         # DEV MODE: Accept any x-casso-signature while investigating correct algorithm
         # PRODUCTION: Set to False to enforce signature verification
-        DEV_BYPASS_SIGNATURE = True  # TEMPORARY: Re-enabled to unblock payments - fix signature verification later
+        DEV_BYPASS_SIGNATURE = False  # Production: Signature verified correctly, bypass disabled
         
         signature_header = request.headers.get("x-casso-signature", "")
         secure_token = request.headers.get("secure-token", "")
@@ -483,8 +483,10 @@ async def bank_webhook(request: Request, db: Session = Depends(get_db)):
         auth_valid = False
         
         print(f"=== CASSO WEBHOOK DEBUG ===")
+        print(f"ALL HEADERS: {dict(request.headers)}")
         print(f"x-casso-signature present: {bool(signature_header)}")
         print(f"secure-token present: {bool(secure_token)}")
+        print(f"CASSO_WEBHOOK_TOKEN (first 20 chars): {secret[:20]}...")
         
         if signature_header:
             # Check if signature has t=...,v1=... format
@@ -499,17 +501,28 @@ async def bank_webhook(request: Request, db: Session = Depends(get_db)):
                 timestamp = sig_parts.get("t", "")
                 signature = sig_parts.get("v1", "")
                 
-                # Try SHA512 first (original)
-                signed_payload = f"{timestamp}.{body_str}"
-                expected_sha512 = hmac.new(secret.encode(), signed_payload.encode(), hashlib.sha512).hexdigest()
-                expected_sha256 = hmac.new(secret.encode(), signed_payload.encode(), hashlib.sha256).hexdigest()
+                # CASSO V2: Keys must be sorted A->Z before signing
+                try:
+                    body_json = json.loads(body_str)
+                    sorted_body_str = json.dumps(body_json, sort_keys=True, separators=(',', ':'))
+                except:
+                    sorted_body_str = body_str  # fallback if not valid JSON
+                
+                # Try SHA512 with sorted body (correct per Casso docs)
+                signed_payload_sorted = f"{timestamp}.{sorted_body_str}"
+                expected_sha512_sorted = hmac.new(secret.encode(), signed_payload_sorted.encode(), hashlib.sha512).hexdigest()
+                
+                # Also try with original body (fallback)
+                signed_payload_raw = f"{timestamp}.{body_str}"
+                expected_sha512_raw = hmac.new(secret.encode(), signed_payload_raw.encode(), hashlib.sha512).hexdigest()
+                expected_sha256_raw = hmac.new(secret.encode(), signed_payload_raw.encode(), hashlib.sha256).hexdigest()
                 
                 print(f"Timestamp: {timestamp}")
                 print(f"Signature received: {signature[:50]}...")
-                print(f"Expected SHA512: {expected_sha512[:50]}...")
-                print(f"Expected SHA256: {expected_sha256[:50]}...")
+                print(f"Expected SHA512 (sorted): {expected_sha512_sorted[:50]}...")
+                print(f"Expected SHA512 (raw): {expected_sha512_raw[:50]}...")
                 
-                if signature == expected_sha512 or signature == expected_sha256:
+                if signature in [expected_sha512_sorted, expected_sha512_raw, expected_sha256_raw]:
                     auth_valid = True
                     print("✅ Structured signature verified!")
             else:
