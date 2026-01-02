@@ -2358,8 +2358,8 @@ def get_revenue_analytics(period: str = "30d", token: dict = Depends(verify_toke
         
         # Revenue for period
         period_result = db.execute(text(
-            "SELECT COALESCE(SUM(amount), 0) FROM bank_orders WHERE status = 'success' AND paid_at >= NOW() - INTERVAL :days DAY"
-        ), {"days": days}).scalar() or 0
+            f"SELECT COALESCE(SUM(amount), 0) FROM bank_orders WHERE status = 'success' AND paid_at >= NOW() - INTERVAL '{days} days'"
+        )).scalar() or 0
         
         # Daily breakdown (last 7 days)
         daily_result = db.execute(text("""
