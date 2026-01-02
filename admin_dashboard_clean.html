@@ -1,0 +1,1454 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AFK Zone Admin Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f7fa;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+        }
+
+        .logout-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .logout-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .nav-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            background: white;
+            padding: 10px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .nav-tab {
+            padding: 10px 20px;
+            background: #f0f0f0;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+
+        .nav-tab.active {
+            background: #667eea;
+            color: white;
+        }
+
+        .nav-tab:hover {
+            background: #e0e0e0;
+        }
+
+        .nav-tab.active:hover {
+            background: #5568d3;
+        }
+
+        .tab-content {
+            display: none;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .stat-card h3 {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-bottom: 10px;
+        }
+
+        .stat-card .value {
+            font-size: 32px;
+            font-weight: bold;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+        }
+
+        .btn-danger {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+
+        .btn-success {
+            background: #27ae60;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #229954;
+        }
+
+        .table-container {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th,
+        td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+        }
+
+        tr:hover {
+            background: #f8f9fa;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .badge-success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .badge-danger {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .badge-warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .badge-info {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #999;
+        }
+
+        .close-btn:hover {
+            color: #333;
+        }
+
+        .alert {
+            padding: 12px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .search-box {
+            margin-bottom: 20px;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+
+        .pagination {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+            justify-content: center;
+        }
+
+        .pagination button {
+            padding: 8px 16px;
+            border: 1px solid #ddd;
+            background: white;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .pagination button:hover {
+            background: #f0f0f0;
+        }
+
+        .pagination button.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 AFK Zone Admin Dashboard</h1>
+            <button class="logout-btn" onclick="logout()">Đăng xuất</button>
+        </div>
+
+        <div id="login-screen" style="display: none;">
+            <div class="tab-content active" style="max-width: 400px; margin: 50px auto;">
+                <h2 style="margin-bottom: 20px;">Đăng nhập Admin</h2>
+                <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" id="login-username" placeholder="Nhập username">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="login-password" placeholder="Nhập password">
+                </div>
+                <button class="btn btn-primary" onclick="login()" style="width: 100%;">Đăng nhập</button>
+                <div id="login-error" class="alert alert-error" style="display: none; margin-top: 15px;"></div>
+            </div>
+        </div>
+
+        <div id="dashboard-screen" style="display: none;">
+            <div class="nav-tabs">
+                <button class="nav-tab active" onclick="showTab('dashboard')">📊 Dashboard</button>
+                <button class="nav-tab" onclick="showTab('products')">🛍️ Sản phẩm</button>
+                <button class="nav-tab" onclick="showTab('licenses')">🔑 Licenses</button>
+                <button class="nav-tab" onclick="showTab('devices')">📱 Thiết bị</button>
+                <button class="nav-tab" onclick="showTab('connections')">🔌 Kết nối</button>
+                <button class="nav-tab" onclick="showTab('orders')">💳 Đơn hàng</button>
+                <button class="nav-tab" onclick="showTab('trials')">🎁 Trial Devices</button>
+            </div>
+
+            <!-- Dashboard Tab -->
+            <div id="tab-dashboard" class="tab-content active">
+                <h2>Thống kê tổng quan</h2>
+                <div class="stats-grid" id="stats-grid">
+                    <!-- Stats will be loaded here -->
+                </div>
+            </div>
+
+            <!-- Products Tab -->
+            <div id="tab-products" class="tab-content">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2>Quản lý sản phẩm</h2>
+                    <button class="btn btn-primary" onclick="showProductModal()">+ Thêm sản phẩm</button>
+                </div>
+                <div class="table-container">
+                    <table id="products-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Tên</th>
+                                <th>Tier</th>
+                                <th>Thời hạn</th>
+                                <th>Giá</th>
+                                <th>Số thiết bị</th>
+                                <th>Trạng thái</th>
+                                <th>Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody id="products-tbody">
+                            <!-- Products will be loaded here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Licenses Tab -->
+            <div id="tab-licenses" class="tab-content">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2>Quản lý Licenses</h2>
+                    <button class="btn btn-primary" onclick="showGenerateLicenseModal()">+ Tạo License</button>
+                </div>
+                <div class="search-box">
+                    <input type="text" id="license-search" placeholder="Tìm kiếm license key, device ID..."
+                        onkeyup="searchLicenses()">
+                </div>
+                <div class="table-container">
+                    <table id="licenses-table">
+                        <thead>
+                            <tr>
+                                <th>License Key</th>
+                                <th>Tier</th>
+                                <th>Thời hạn</th>
+                                <th>Max Devices</th>
+                                <th>Kích hoạt</th>
+                                <th>Hết hạn</th>
+                                <th>Trạng thái</th>
+                                <th>Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody id="licenses-tbody">
+                            <!-- Licenses will be loaded here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Devices Tab -->
+            <div id="tab-devices" class="tab-content">
+                <h2>Quản lý thiết bị</h2>
+                <div class="search-box">
+                    <input type="text" id="device-search" placeholder="Tìm kiếm device ID..." onkeyup="searchDevices()">
+                </div>
+                <div class="table-container">
+                    <table id="devices-table">
+                        <thead>
+                            <tr>
+                                <th>Device ID</th>
+                                <th>Model</th>
+                                <th>App Version</th>
+                                <th>License Key</th>
+                                <th>Tier</th>
+                                <th>Last Seen</th>
+                                <th>Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody id="devices-tbody">
+                            <!-- Devices will be loaded here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Orders Tab -->
+            <div id="tab-orders" class="tab-content">
+                <h2>Quản lý đơn hàng</h2>
+                <div class="search-box">
+                    <select id="order-status-filter" onchange="loadOrders()"
+                        style="padding: 10px; border-radius: 5px; border: 1px solid #ddd; margin-right: 10px;">
+                        <option value="">Tất cả trạng thái</option>
+                        <option value="pending">Chờ thanh toán</option>
+                        <option value="success">Thành công</option>
+                        <option value="expired">Hết hạn</option>
+                    </select>
+                    <input type="text" id="order-search" placeholder="Tìm kiếm mã đơn, device ID..."
+                        onkeyup="searchOrders()">
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Mã đơn</th>
+                                <th>Gói</th>
+                                <th>Thời hạn</th>
+                                <th>Số tiền</th>
+                                <th>Trạng thái</th>
+                                <th>License</th>
+                                <th>Ngày tạo</th>
+                                <th>Ngày thanh toán</th>
+                                <th>Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody id="orders-table">
+                            <!-- Orders will be loaded here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Connections Tab -->
+            <div id="tab-connections" class="tab-content">
+                <h2>Lịch sử kết nối</h2>
+                <div class="search-box">
+                    <input type="text" id="connection-search" placeholder="Tìm kiếm device ID, peer ID..."
+                        onkeyup="searchConnections()">
+                </div>
+                <div class="table-container">
+                    <table id="connections-table">
+                        <thead>
+                            <tr>
+                                <th>Device ID</th>
+                                <th>Peer ID</th>
+                                <th>Loại</th>
+                                <th>IP Address</th>
+                                <th>Kết nối</th>
+                                <th>Ngắt kết nối</th>
+                                <th>Thời gian</th>
+                                <th>License</th>
+                            </tr>
+                        </thead>
+                        <tbody id="connections-tbody">
+                            <!-- Connections will be loaded here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Trial Devices Tab -->
+            <div id="tab-trials" class="tab-content">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2>🎁 Quản lý Trial Devices</h2>
+                    <button class="btn btn-danger" onclick="clearAllTrials()">🗑️ Xóa tất cả</button>
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Device Fingerprint</th>
+                                <th>IP Address</th>
+                                <th>License Key</th>
+                                <th>Ngày tạo</th>
+                                <th>Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody id="trials-tbody">
+                            <tr>
+                                <td colspan="6" style="text-align: center; padding: 20px;">Đang tải...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Product Modal -->
+    <div id="product-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="product-modal-title">Thêm sản phẩm</h3>
+                <button class="close-btn" onclick="closeProductModal()">&times;</button>
+            </div>
+            <div id="product-form">
+                <div class="form-group">
+                    <label>Tên sản phẩm</label>
+                    <input type="text" id="product-name" placeholder="Ví dụ: Basic 30 ngày">
+                </div>
+                <div class="form-group">
+                    <label>Tier</label>
+                    <select id="product-tier">
+                        <option value="basic">Basic</option>
+                        <option value="pro">Pro</option>
+                        <option value="enterprise">Enterprise</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Thời hạn (ngày)</label>
+                    <input type="number" id="product-duration" placeholder="30">
+                </div>
+                <div class="form-group">
+                    <label>Giá (VND)</label>
+                    <input type="number" id="product-price" placeholder="60000">
+                </div>
+                <div class="form-group">
+                    <label>Số thiết bị tối đa (-1 = không giới hạn)</label>
+                    <input type="number" id="product-max-devices" placeholder="2">
+                </div>
+                <div class="form-group">
+                    <label>Mô tả</label>
+                    <textarea id="product-description" placeholder="Mô tả sản phẩm..."></textarea>
+                </div>
+                <button class="btn btn-primary" onclick="saveProduct()" style="width: 100%;">Lưu</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Generate License Modal -->
+    <div id="license-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Tạo License</h3>
+                <button class="close-btn" onclick="closeLicenseModal()">&times;</button>
+            </div>
+            <div class="form-group">
+                <label>Tier</label>
+                <select id="license-tier">
+                    <option value="basic">Basic</option>
+                    <option value="pro">Pro</option>
+                    <option value="enterprise">Enterprise</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Thời hạn (ngày)</label>
+                <input type="number" id="license-duration" placeholder="30">
+            </div>
+            <div class="form-group">
+                <label>Số thiết bị tối đa (-1 = không giới hạn)</label>
+                <input type="number" id="license-max-devices" placeholder="2">
+            </div>
+            <div class="form-group">
+                <label>Ghi chú</label>
+                <textarea id="license-notes" placeholder="Ghi chú..."></textarea>
+            </div>
+            <button class="btn btn-primary" onclick="generateLicense()" style="width: 100%;">Tạo License</button>
+            <div id="license-result" style="margin-top: 15px;"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'https://api.afkzone.cloud';
+        let authToken = localStorage.getItem('admin_token');
+        let currentPage = {
+            products: 1,
+            licenses: 1,
+            devices: 1,
+            connections: 1
+        };
+
+        // Check if logged in
+        if (authToken) {
+            showDashboard();
+        } else {
+            showLogin();
+        }
+
+        function showLogin() {
+            document.getElementById('login-screen').style.display = 'block';
+            document.getElementById('dashboard-screen').style.display = 'none';
+        }
+
+        function showDashboard() {
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('dashboard-screen').style.display = 'block';
+            loadDashboard();
+        }
+
+        async function login() {
+            const username = document.getElementById('login-username').value;
+            const password = document.getElementById('login-password').value;
+            const errorDiv = document.getElementById('login-error');
+            errorDiv.style.display = 'none';
+
+            if (!username || !password) {
+                errorDiv.textContent = 'Vui lòng nhập đầy đủ username và password';
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_BASE}/admin/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.access_token) {
+                        authToken = data.access_token;
+                        localStorage.setItem('admin_token', authToken);
+                        showDashboard();
+                    } else {
+                        errorDiv.textContent = 'Không nhận được token từ server';
+                        errorDiv.style.display = 'block';
+                    }
+                } else {
+                    let errorMsg = 'Đăng nhập thất bại';
+                    try {
+                        const error = await res.json();
+                        if (error.detail) {
+                            if (Array.isArray(error.detail)) {
+                                errorMsg = error.detail.map(e => e.msg || e).join(', ');
+                            } else {
+                                errorMsg = error.detail;
+                            }
+                        }
+                    } catch (e) {
+                        errorMsg = `HTTP ${res.status}: ${res.statusText}`;
+                    }
+                    errorDiv.textContent = errorMsg;
+                    errorDiv.style.display = 'block';
+                }
+            } catch (e) {
+                errorDiv.textContent = 'Lỗi kết nối: ' + e.message;
+                errorDiv.style.display = 'block';
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('admin_token');
+            authToken = null;
+            showLogin();
+        }
+
+        function showTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.nav-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+
+            // Show selected tab
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+            event.target.classList.add('active');
+
+            // Load data for tab
+            if (tabName === 'dashboard') loadDashboard();
+            else if (tabName === 'products') loadProducts();
+            else if (tabName === 'licenses') loadLicenses();
+            else if (tabName === 'devices') loadDevices();
+            else if (tabName === 'connections') loadConnections();
+            else if (tabName === 'orders') loadOrders();
+            else if (tabName === 'trials') loadTrials();
+        }
+
+        async function loadDashboard() {
+            try {
+                const res = await fetch(`${API_BASE}/admin/dashboard/stats`, {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+                const stats = await res.json();
+
+                document.getElementById('stats-grid').innerHTML = `
+                    <div class="stat-card">
+                        <h3>Tổng thiết bị</h3>
+                        <div class="value">${stats.total_devices || 0}</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Thiết bị hoạt động (24h)</h3>
+                        <div class="value">${stats.active_devices_24h || 0}</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Licenses đang hoạt động</h3>
+                        <div class="value">${stats.total_licenses_active || 0}</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Licenses hết hạn</h3>
+                        <div class="value">${stats.total_licenses_expired || 0}</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Doanh thu hôm nay</h3>
+                        <div class="value">${formatMoney(stats.total_revenue_today || 0)}</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Doanh thu tháng này</h3>
+                        <div class="value">${formatMoney(stats.total_revenue_month || 0)}</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Doanh thu tổng</h3>
+                        <div class="value">${formatMoney(stats.total_revenue_all || 0)}</div>
+                    </div>
+                `;
+            } catch (e) {
+                console.error('Error loading dashboard:', e);
+            }
+        }
+
+        async function loadProducts() {
+            try {
+                const res = await fetch(`${API_BASE}/products?active_only=false`);
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                }
+                const data = await res.json();
+                const products = data.products || [];
+                const tbody = document.getElementById('products-tbody');
+
+                if (products.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px; color: #999;">Không có sản phẩm nào</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = products.map(p => `
+                    <tr>
+                        <td>${p.id}</td>
+                        <td>${p.name || 'N/A'}</td>
+                        <td><span class="badge badge-info">${p.tier || 'N/A'}</span></td>
+                        <td>${p.duration_days || 'N/A'} ngày</td>
+                        <td>${p.display_price || (p.price ? p.price + 'đ' : 'N/A')}</td>
+                        <td>${p.max_devices === -1 ? 'Không giới hạn' : (p.max_devices || 'N/A')}</td>
+                        <td>${p.is_active ? '<span class="badge badge-success">Hoạt động</span>' : '<span class="badge badge-danger">Tắt</span>'}</td>
+                        <td>
+                            <button class="btn btn-primary" onclick="editProduct(${p.id})" style="padding: 5px 10px; font-size: 12px;">Sửa</button>
+                            ${p.is_active ?
+                        '<button class="btn btn-warning" onclick="deleteProduct(' + p.id + ')" style="padding: 5px 10px; font-size: 12px;">Tắt</button>' :
+                        '<button class="btn btn-success" onclick="enableProduct(' + p.id + ')" style="padding: 5px 10px; font-size: 12px;">Bật</button>'
+                    }
+                            <button class="btn btn-danger" onclick="deleteProductPermanent(${p.id})" style="padding: 5px 10px; font-size: 12px;">Xóa</button>
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (e) {
+                console.error('Error loading products:', e);
+                document.getElementById('products-tbody').innerHTML = `<tr><td colspan="8" style="text-align: center; color: red; padding: 20px;">Lỗi: ${e.message}</td></tr>`;
+            }
+        }
+
+        async function loadLicenses() {
+            try {
+                const res = await fetch(`${API_BASE}/admin/licenses?limit=100`, {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                }
+                const data = await res.json();
+                const licenses = data.licenses || (Array.isArray(data) ? data : []);
+                const tbody = document.getElementById('licenses-tbody');
+
+                if (!licenses || licenses.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px; color: #999;">Không có license nào</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = licenses.map(l => {
+                    let expiresAt = 'Chưa kích hoạt';
+                    let activatedAt = 'Chưa kích hoạt';
+
+                    if (l.expires_at) {
+                        if (typeof l.expires_at === 'number') {
+                            expiresAt = new Date(l.expires_at).toLocaleString('vi-VN');
+                        } else {
+                            expiresAt = new Date(l.expires_at).toLocaleString('vi-VN');
+                        }
+                    }
+
+                    if (l.activated_at) {
+                        if (typeof l.activated_at === 'number') {
+                            activatedAt = new Date(l.activated_at).toLocaleString('vi-VN');
+                        } else {
+                            activatedAt = new Date(l.activated_at).toLocaleString('vi-VN');
+                        }
+                    }
+
+                    const isExpired = l.expires_at && (typeof l.expires_at === 'number' ? l.expires_at < Date.now() : new Date(l.expires_at) < new Date());
+                    const isRevoked = l.is_revoked || false;
+
+                    return `
+                        <tr>
+                            <td><code>${l.license_key || 'N/A'}</code></td>
+                            <td><span class="badge badge-info">${l.tier || 'N/A'}</span></td>
+                            <td>${l.duration_days || 'N/A'} ngày</td>
+                            <td>${l.max_devices === -1 ? 'Không giới hạn' : (l.max_devices || 'N/A')}</td>
+                            <td>${activatedAt}</td>
+                            <td>${expiresAt}</td>
+                            <td>
+                                ${isRevoked ? '<span class="badge badge-danger">Đã thu hồi</span>' :
+                            isExpired ? '<span class="badge badge-warning">Hết hạn</span>' :
+                                '<span class="badge badge-success">Hoạt động</span>'}
+                            </td>
+                            <td>
+                                <button class="btn btn-danger" onclick="revokeLicense('${l.license_key}')" style="padding: 5px 10px; font-size: 12px;">Thu hồi</button>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            } catch (e) {
+                console.error('Error loading licenses:', e);
+                document.getElementById('licenses-tbody').innerHTML = `<tr><td colspan="8" style="text-align: center; color: red; padding: 20px;">Lỗi: ${e.message}</td></tr>`;
+            }
+        }
+
+        async function loadDevices() {
+            try {
+                const res = await fetch(`${API_BASE}/admin/users?limit=100`, {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                }
+                const data = await res.json();
+                const users = data.users || [];
+                const tbody = document.getElementById('devices-tbody');
+
+                if (users.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px; color: #999;">Không có thiết bị nào</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = users.map(u => `
+                    <tr>
+                        <td><code>${u.device_id || 'N/A'}</code></td>
+                        <td>${u.device_model || 'N/A'}</td>
+                        <td>${u.app_version || 'N/A'}</td>
+                        <td><code>${u.license_key || 'N/A'}</code></td>
+                        <td>${u.license_tier || 'N/A'}</td>
+                        <td>${u.last_seen ? new Date(u.last_seen).toLocaleString('vi-VN') : 'N/A'}</td>
+                        <td>
+                            <button class="btn btn-danger" onclick="removeDevice('${u.device_id}')" style="padding: 5px 10px; font-size: 12px;">Xóa</button>
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (e) {
+                console.error('Error loading devices:', e);
+                document.getElementById('devices-tbody').innerHTML = `<tr><td colspan="7" style="text-align: center; color: red; padding: 20px;">Lỗi: ${e.message}</td></tr>`;
+            }
+        }
+
+        async function loadConnections() {
+            try {
+                const res = await fetch(`${API_BASE}/admin/connections?limit=100`, {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                }
+                const data = await res.json();
+                const connections = data.connections || [];
+                const tbody = document.getElementById('connections-tbody');
+
+                if (connections.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px; color: #999;">Không có kết nối nào</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = connections.map(c => `
+                    <tr>
+                        <td><code>${c.device_id || 'N/A'}</code></td>
+                        <td><code>${c.peer_id || 'N/A'}</code></td>
+                        <td>${c.connection_type || 'N/A'}</td>
+                        <td>${c.ip_address || 'N/A'}</td>
+                        <td>${c.connected_at ? new Date(c.connected_at).toLocaleString('vi-VN') : 'N/A'}</td>
+                        <td>${c.disconnected_at ? new Date(c.disconnected_at).toLocaleString('vi-VN') : 'Đang kết nối'}</td>
+                        <td>${c.duration_seconds ? formatDuration(c.duration_seconds) : 'N/A'}</td>
+                        <td><code>${c.license_key || 'N/A'}</code></td>
+                    </tr>
+                `).join('');
+            } catch (e) {
+                console.error('Error loading connections:', e);
+                document.getElementById('connections-tbody').innerHTML = `<tr><td colspan="8" style="text-align: center; color: red; padding: 20px;">Lỗi: ${e.message}</td></tr>`;
+            }
+        }
+
+        let editingProductId = null;
+
+        function showProductModal() {
+            editingProductId = null;
+            document.getElementById('product-modal-title').textContent = 'Thêm sản phẩm';
+            document.getElementById('product-modal').classList.add('active');
+            // Clear form
+            document.getElementById('product-name').value = '';
+            document.getElementById('product-tier').value = 'basic';
+            document.getElementById('product-duration').value = '';
+            document.getElementById('product-price').value = '';
+            document.getElementById('product-max-devices').value = '';
+            document.getElementById('product-description').value = '';
+        }
+
+        async function editProduct(productId) {
+            editingProductId = productId;
+            try {
+                const res = await fetch(`${API_BASE}/products?active_only=false`);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                const product = data.products.find(p => p.id === productId);
+                if (product) {
+                    document.getElementById('product-modal-title').textContent = 'Sửa sản phẩm';
+                    document.getElementById('product-name').value = product.name || '';
+                    document.getElementById('product-tier').value = product.tier || 'basic';
+                    document.getElementById('product-duration').value = product.duration_days || '';
+                    document.getElementById('product-price').value = product.price || '';
+                    document.getElementById('product-max-devices').value = product.max_devices || '';
+                    document.getElementById('product-description').value = product.description || '';
+                    document.getElementById('product-modal').classList.add('active');
+                } else {
+                    alert('Không tìm thấy sản phẩm');
+                }
+            } catch (e) {
+                alert('Lỗi: ' + e.message);
+            }
+        }
+
+        async function deleteProduct(productId) {
+            if (!confirm('Bạn có chắc muốn tắt sản phẩm này?')) return;
+
+            try {
+                const res = await fetch(`${API_BASE}/admin/products/${productId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+
+                if (res.ok) {
+                    alert('Sản phẩm đã được tắt!');
+                    loadProducts();
+                } else {
+                    const error = await res.json();
+                    let errorMsg = error.detail || 'Không thể tắt sản phẩm';
+                    if (Array.isArray(error.detail)) {
+                        errorMsg = error.detail.map(e => e.msg || e).join(', ');
+                    }
+                    alert('Lỗi: ' + errorMsg);
+                }
+            } catch (e) {
+                alert('Lỗi: ' + e.message);
+            }
+        }
+
+        async function enableProduct(productId) {
+            try {
+                const res = await fetch(`${API_BASE}/admin/products/${productId}/enable`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+
+                if (res.ok) {
+                    alert('Sản phẩm đã được bật!');
+                    loadProducts();
+                } else {
+                    const error = await res.json();
+                    let errorMsg = error.detail || 'Không thể bật sản phẩm';
+                    if (Array.isArray(error.detail)) {
+                        errorMsg = error.detail.map(e => e.msg || e).join(', ');
+                    }
+                    alert('Lỗi: ' + errorMsg);
+                }
+            } catch (e) {
+                alert('Lỗi: ' + e.message);
+            }
+        }
+
+        async function deleteProductPermanent(productId) {
+            if (!confirm('⚠️ Bạn có chắc muốn XÓA HOÀN TOÀN sản phẩm này? Hành động này không thể hoàn tác!')) return;
+
+            try {
+                const res = await fetch(`${API_BASE}/admin/products/${productId}/permanent`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+
+                if (res.ok) {
+                    alert('Sản phẩm đã được xóa hoàn toàn!');
+                    loadProducts();
+                } else {
+                    const error = await res.json();
+                    let errorMsg = error.detail || 'Không thể xóa sản phẩm';
+                    if (Array.isArray(error.detail)) {
+                        errorMsg = error.detail.map(e => e.msg || e).join(', ');
+                    }
+                    alert('Lỗi: ' + errorMsg);
+                }
+            } catch (e) {
+                alert('Lỗi: ' + e.message);
+            }
+        }
+
+        function closeProductModal() {
+            document.getElementById('product-modal').classList.remove('active');
+            editingProductId = null;
+            // Clear form
+            document.getElementById('product-name').value = '';
+            document.getElementById('product-tier').value = 'basic';
+            document.getElementById('product-duration').value = '';
+            document.getElementById('product-price').value = '';
+            document.getElementById('product-max-devices').value = '';
+            document.getElementById('product-description').value = '';
+        }
+
+        async function saveProduct() {
+            const product = {
+                name: document.getElementById('product-name').value,
+                tier: document.getElementById('product-tier').value,
+                duration_days: parseInt(document.getElementById('product-duration').value),
+                price: parseInt(document.getElementById('product-price').value),
+                max_devices: parseInt(document.getElementById('product-max-devices').value),
+                description: document.getElementById('product-description').value,
+                is_active: true
+            };
+
+            if (!product.name || !product.tier || !product.duration_days || isNaN(product.price)) {
+                alert('Vui lòng điền đầy đủ thông tin (tên, tier, thời hạn, giá)');
+                return;
+            }
+
+            try {
+                let res;
+                if (editingProductId) {
+                    // Update existing product
+                    res = await fetch(`${API_BASE}/admin/products/${editingProductId}`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${authToken}`
+                        },
+                        body: JSON.stringify(product)
+                    });
+                } else {
+                    // Create new product
+                    res = await fetch(`${API_BASE}/admin/products`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${authToken}`
+                        },
+                        body: JSON.stringify(product)
+                    });
+                }
+
+                if (res.ok) {
+                    alert(editingProductId ? 'Sản phẩm đã được cập nhật!' : 'Sản phẩm đã được tạo thành công!');
+                    closeProductModal();
+                    loadProducts();
+                } else {
+                    const error = await res.json();
+                    let errorMsg = error.detail || 'Không thể lưu sản phẩm';
+                    if (Array.isArray(error.detail)) {
+                        errorMsg = error.detail.map(e => e.msg || e).join(', ');
+                    }
+                    alert('Lỗi: ' + errorMsg);
+                }
+            } catch (e) {
+                alert('Lỗi: ' + e.message);
+            }
+        }
+
+        function showGenerateLicenseModal() {
+            document.getElementById('license-modal').classList.add('active');
+        }
+
+        function closeLicenseModal() {
+            document.getElementById('license-modal').classList.remove('active');
+            document.getElementById('license-result').innerHTML = '';
+        }
+
+        async function generateLicense() {
+            const tier = document.getElementById('license-tier').value;
+            const duration_days = parseInt(document.getElementById('license-duration').value);
+            const max_devices = parseInt(document.getElementById('license-max-devices').value) || null;
+            const notes = document.getElementById('license-notes').value;
+
+            if (!tier || !duration_days) {
+                document.getElementById('license-result').innerHTML = '<div class="alert alert-error">Vui lòng điền đầy đủ thông tin (tier, thời hạn)</div>';
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_BASE}/admin/licenses/generate`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify({
+                        tier: tier,
+                        duration_days: duration_days,
+                        max_devices: max_devices,
+                        notes: notes || null
+                    })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('license-result').innerHTML = `
+                        <div class="alert alert-success">
+                            <strong>License đã được tạo!</strong><br>
+                            License Key: <code>${data.license_key}</code><br>
+                            <button class="btn btn-primary" onclick="navigator.clipboard.writeText('${data.license_key}')" style="margin-top: 10px;">Copy License Key</button>
+                        </div>
+                    `;
+                    loadLicenses();
+                } else {
+                    const error = await res.json();
+                    let errorMsg = error.detail || 'Không thể tạo license';
+                    if (Array.isArray(error.detail)) {
+                        errorMsg = error.detail.map(e => e.msg || e).join(', ');
+                    }
+                    document.getElementById('license-result').innerHTML = `
+                        <div class="alert alert-error">Lỗi: ${errorMsg}</div>
+                    `;
+                }
+            } catch (e) {
+                document.getElementById('license-result').innerHTML = `
+                    <div class="alert alert-error">Lỗi: ${e.message}</div>
+                `;
+            }
+        }
+
+        async function removeDevice(deviceId) {
+            if (!confirm(`Bạn có chắc muốn xóa thiết bị ${deviceId}?`)) return;
+
+            try {
+                const res = await fetch(`${API_BASE}/admin/devices/${deviceId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+
+                if (res.ok) {
+                    alert('Thiết bị đã được xóa!');
+                    loadDevices();
+                } else {
+                    const error = await res.json();
+                    alert('Lỗi: ' + (error.detail || 'Không thể xóa thiết bị'));
+                }
+            } catch (e) {
+                alert('Lỗi: ' + e.message);
+            }
+        }
+
+        async function revokeLicense(licenseKey) {
+            if (!confirm(`Bạn có chắc muốn thu hồi license ${licenseKey}?`)) return;
+
+            const reason = prompt('Lý do thu hồi:');
+            if (!reason) return;
+
+            try {
+                const res = await fetch(`${API_BASE}/admin/licenses/${licenseKey}/revoke?reason=${encodeURIComponent(reason)}`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+
+                if (res.ok) {
+                    alert('License đã được thu hồi!');
+                    loadLicenses();
+                } else {
+                    const error = await res.json();
+                    alert('Lỗi: ' + (error.detail || 'Không thể thu hồi license'));
+                }
+            } catch (e) {
+                alert('Lỗi: ' + e.message);
+            }
+        }
+
+        function formatMoney(amount) {
+            if (amount >= 1000) {
+                return (amount / 1000).toFixed(0) + 'k';
+            }
+            return amount.toString();
+        }
+
+        function formatDuration(seconds) {
+            if (seconds < 60) return seconds + 's';
+            if (seconds < 3600) return Math.floor(seconds / 60) + 'm';
+            return Math.floor(seconds / 3600) + 'h';
+        }
+
+        function searchLicenses() {
+            // Implement search
+            loadLicenses();
+        }
+
+        function searchDevices() {
+            // Implement search
+            loadDevices();
+        }
+
+        function searchConnections() {
+            // Implement search
+            loadConnections();
+        }
+
+        // ==================== ORDERS ====================
+        async function loadOrders() {
+            try {
+                const status = document.getElementById('order-status-filter')?.value || '';
+                const url = status ? `${API_BASE}/admin/orders?status=${status}` : `${API_BASE}/admin/orders`;
+
+                const res = await fetch(url, {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    const tbody = document.getElementById('orders-table');
+
+                    if (data.orders && data.orders.length > 0) {
+                        tbody.innerHTML = data.orders.map(o => `
+                            <tr>
+                                <td><strong>${o.trans_code}</strong></td>
+                                <td>${o.tier.toUpperCase()}</td>
+                                <td>${o.duration_days} ngày</td>
+                                <td>${formatMoney(o.amount)}</td>
+                                <td>
+                                    <span class="badge ${o.status === 'success' ? 'badge-success' : o.status === 'pending' ? 'badge-warning' : 'badge-danger'}">
+                                        ${o.status === 'success' ? 'Thành công' : o.status === 'pending' ? 'Chờ thanh toán' : 'Hết hạn'}
+                                    </span>
+                                </td>
+                                <td>${o.license_key || '<em>Chưa có</em>'}</td>
+                                <td>${new Date(o.created_at).toLocaleString('vi-VN')}</td>
+                                <td>${o.paid_at ? new Date(o.paid_at).toLocaleString('vi-VN') : '<em>Chưa thanh toán</em>'}</td>
+                                <td>
+                                    ${o.status === 'pending' ?
+                                `<button class="btn btn-success" onclick="completeOrder('${o.trans_code}')" style="padding: 5px 10px; font-size: 12px;">✓ Hoàn thành</button>` :
+                                '<em>-</em>'
+                            }
+                                </td>
+                            </tr>
+                        `).join('');
+                    } else {
+                        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 20px; color: #999;">Không có đơn hàng nào</td></tr>';
+                    }
+                } else {
+                    alert('Lỗi khi tải danh sách đơn hàng');
+                }
+            } catch (e) {
+                alert('Lỗi: ' + e.message);
+            }
+        }
+
+        async function completeOrder(transCode) {
+            if (!confirm(`Xác nhận hoàn thành đơn hàng ${transCode}? Hệ thống sẽ tự động tạo và kích hoạt license.`)) return;
+
+            try {
+                const res = await fetch(`${API_BASE}/admin/orders/${transCode}/complete`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    alert(`✅ Đơn hàng đã hoàn thành!\n\nLicense: ${data.license_key}\nGói: ${data.tier.toUpperCase()} - ${data.duration_days} ngày`);
+                    loadOrders();
+                } else {
+                    const error = await res.json();
+                    alert('Lỗi: ' + (error.detail || 'Không thể hoàn thành đơn hàng'));
+                }
+            } catch (e) {
+                alert('Lỗi: ' + e.message);
+            }
+        }
+
+        function searchOrders() {
+            // Implement search
+            loadOrders();
+        }
+
+        // ==================== TRIAL DEVICES FUNCTIONS ====================
+        async function loadTrials() {
+            console.log('🔄 Loading trial devices...');
+
+            const tbody = document.getElementById('trials-tbody');
+            if (!tbody) {
+                console.error('❌ trials-tbody not found!');
+                return;
+            }
+
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px;">Đang tải...</td></tr>';
+
+            try {
+                const res = await fetch(`${API_BASE}/admin/trial-devices`, {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+
+                console.log('📥 Response status:', res.status);
+
+                if (!res.ok) {
+                    throw new Error('HTTP ' + res.status);
+                }
+
+                const data = await res.json();
+                console.log('✅ Response data:', data);
+
+                const devices = data.devices || data || [];
+                console.log('📊 Trial devices count:', devices.length);
+
+                if (!devices || devices.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; color: #999;">Không có trial device nào</td></tr>';
+                    return;
+                }
+
+                let html = '';
+                for (let i = 0; i < devices.length; i++) {
+                    const d = devices[i];
+                    const fingerprint = d.device_fingerprint || 'N/A';
+                    const shortFingerprint = fingerprint.length > 20 ? fingerprint.substring(0, 20) + '...' : fingerprint;
+
+                    html += '<tr>';
+                    html += '<td>' + (d.id || 'N/A') + '</td>';
+                    html += '<td style="font-family: monospace; font-size: 11px;">' + shortFingerprint + '</td>';
+                    html += '<td>' + (d.ip_address || 'N/A') + '</td>';
+                    html += '<td style="font-family: monospace; font-size: 12px; color: #007bff;">' + (d.license_key || 'N/A') + '</td>';
+                    html += '<td>' + (d.created_at || 'N/A') + '</td>';
+                    html += '<td><button class="btn btn-danger" onclick="removeTrialDevice(' + d.id + ')" style="padding: 5px 10px; font-size: 12px;">Xóa</button></td>';
+                    html += '</tr>';
+                }
+
+                tbody.innerHTML = html;
+                console.log('✅ Trial devices loaded successfully!');
+
+            } catch (e) {
+                console.error('❌ Error loading trials:', e);
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; color: red;">Lỗi: ' + e.message + '</td></tr>';
+            }
+        }
+
+        async function removeTrialDevice(id) {
+            if (!confirm('Xóa trial device này? Device sẽ có thể dùng thử lại.')) return;
+            try {
+                const res = await fetch(`${API_BASE}/admin/trial-devices/` + id, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+                if (res.ok) {
+                    alert('Đã xóa trial device!');
+                    loadTrials();
+                } else {
+                    alert('Lỗi khi xóa: ' + res.status);
+                }
+            } catch (e) {
+                alert('Lỗi: ' + e.message);
+            }
+        }
+
+        async function clearAllTrials() {
+            if (!confirm('XÓA TẤT CẢ trial devices? Tất cả users sẽ có thể dùng thử lại!')) return;
+            try {
+                const res = await fetch(`${API_BASE}/admin/trial-devices`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+                if (res.ok) {
+                    alert('Đã xóa tất cả trial devices!');
+                    loadTrials();
+                } else {
+                    alert('Lỗi khi xóa: ' + res.status);
+                }
+            } catch (e) {
+                alert('Lỗi: ' + e.message);
+            }
+        }
+    </script>
+</body>
+
+</html>
