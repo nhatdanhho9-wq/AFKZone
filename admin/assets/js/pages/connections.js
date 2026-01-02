@@ -33,7 +33,7 @@ async function loadConnections() {
         connectionsData = Array.isArray(data) ? data : (data.connections || []);
         renderTable(connectionsData);
     } catch (error) {
-        table.innerHTML = `<div style="padding:2rem;text-align:center;color:#C44536">Failed to load: \${escapeHtml(error.message)}</div>`;
+        table.innerHTML = `<div style="padding:2rem;text-align:center;color:#C44536">Failed to load: ${escapeHtml(error.message)}</div>`;
     }
 }
 
@@ -46,14 +46,14 @@ function renderTable(connections) {
 
     const rows = connections.map(c => `
         <tr>
-            <td><code class="mono">\${escapeHtml(c.device_fingerprint||c.device_id||'N/A')}</code></td>
-            <td>\${escapeHtml(c.license_key||'N/A')}</td>
-            <td>\${escapeHtml(c.ip_address||'N/A')}</td>
-            <td>\${escapeHtml(formatDate(c.connected_at||c.created_at))}</td>
-            <td>\${escapeHtml(formatDate(c.disconnected_at||''))}</td>
-            <td>\${escapeHtml(String(c.duration_seconds||0))}s</td>
+            <td><code class="mono">${escapeHtml(c.device_fingerprint||c.device_id||'N/A')}</code></td>
+            <td>${escapeHtml(c.license_key||'N/A')}</td>
+            <td>${escapeHtml(c.ip_address||'N/A')}</td>
+            <td>${escapeHtml(formatDate(c.connected_at||c.created_at))}</td>
+            <td>${escapeHtml(formatDate(c.disconnected_at||''))}</td>
+            <td>${escapeHtml(String(c.duration_seconds||0))}s</td>
         </tr>
     `).join('');
 
-    table.innerHTML = `<table><thead><tr><th>Device</th><th>License</th><th>IP Address</th><th>Connected</th><th>Disconnected</th><th>Duration</th></tr></thead><tbody>\${rows}</tbody></table>`;
+    table.innerHTML = `<table><thead><tr><th>Device</th><th>License</th><th>IP Address</th><th>Connected</th><th>Disconnected</th><th>Duration</th></tr></thead><tbody>${rows}</tbody></table>`;
 }

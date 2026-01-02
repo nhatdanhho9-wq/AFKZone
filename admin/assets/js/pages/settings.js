@@ -18,7 +18,7 @@ export async function loadSettingsPage(container) {
                     <div style="display:grid;grid-template-columns:200px 1fr"><span style="color:#6D655B">Version:</span> <strong>v2.2.46</strong></div>
                     <div style="display:grid;grid-template-columns:200px 1fr"><span style="color:#6D655B">Environment:</span> <strong>Production</strong></div>
                     <div style="display:grid;grid-template-columns:200px 1fr"><span style="color:#6D655B">Server Time:</span> <strong id="server-time">-</strong></div>
-                    <div style="display:grid;grid-template-columns:200px 1fr"><span style="color:#6D655B">API Base URL:</span> <code class="mono">/api</code></div>
+                    <div style="display:grid;grid-template-columns:200px 1fr"><span style="color:#6D655B">API Base URL:</span> <code class="mono">https://api.afkzone.cloud</code></div>
                 </div>
             </div>
 

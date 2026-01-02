@@ -33,7 +33,7 @@ async function loadDevices() {
         devicesData = Array.isArray(data) ? data : (data.devices || []);
         renderTable(devicesData);
     } catch (error) {
-        table.innerHTML = `<div style="padding:2rem;text-align:center;color:#C44536">Failed to load: \${escapeHtml(error.message)}</div>`;
+        table.innerHTML = `<div style="padding:2rem;text-align:center;color:#C44536">Failed to load: ${escapeHtml(error.message)}</div>`;
     }
 }
 
@@ -51,17 +51,17 @@ function renderTable(devices) {
         
         return `
         <tr>
-            <td><code class="mono">\${escapeHtml(d.device_id||'N/A')}</code></td>
-            <td>\${escapeHtml(d.model||'N/A')}</td>
-            <td>\${escapeHtml(d.app_version||'N/A')}</td>
-            <td>\${escapeHtml(d.license_key||'N/A')}</td>
-            <td>\${escapeHtml(d.tier||'N/A')}</td>
-            <td>\${escapeHtml(formatDate(d.activated_at))}</td>
-            <td>\${escapeHtml(formatDate(d.expires_at))}</td>
-            <td>\${statusBadge}</td>
+            <td><code class="mono">${escapeHtml(d.device_id||'N/A')}</code></td>
+            <td>${escapeHtml(d.model||'N/A')}</td>
+            <td>${escapeHtml(d.app_version||'N/A')}</td>
+            <td>${escapeHtml(d.license_key||'N/A')}</td>
+            <td>${escapeHtml(d.tier||'N/A')}</td>
+            <td>${escapeHtml(formatDate(d.activated_at))}</td>
+            <td>${escapeHtml(formatDate(d.expires_at))}</td>
+            <td>${statusBadge}</td>
         </tr>
         `;
     }).join('');
 
-    table.innerHTML = `<table><thead><tr><th>Device ID</th><th>Model</th><th>App Version</th><th>License</th><th>Tier</th><th>Activated</th><th>Expires</th><th>Status</th></tr></thead><tbody>\${rows}</tbody></table>`;
+    table.innerHTML = `<table><thead><tr><th>Device ID</th><th>Model</th><th>App Version</th><th>License</th><th>Tier</th><th>Activated</th><th>Expires</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
