@@ -157,21 +157,29 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
     await prefs.setInt('afk_license_duration', widget.durationDays);
     await prefs.setInt('afk_license_purchased_at', DateTime.now().millisecondsSinceEpoch);
 
+    // ALWAYS set afk_license_key after payment success
+    await prefs.setString('afk_license_key', licenseKey);
+
     // Auto-activate license
     int? expiresAt;
     int? maxDevices;
+    bool activationSuccessful = false;
     try {
       final deviceId = await LicenseService.getDeviceFingerprint();
-      
+
       // Also save device_id to match LicenseWrapper
       await prefs.setString('device_id', deviceId);
-      
+
       final result = await LicenseService.activateLicense(licenseKey, deviceId);
       if (result != null) {
-        await prefs.setBool('afk_license_active', true);
-        if (result['license_key'] != null) {
-          await prefs.setString('afk_license_key', result['license_key']);
+        final status = result['status']?.toString().toLowerCase();
+
+        // Only set afk_license_active=true if status is active/activated
+        if (status == 'active' || status == 'activated') {
+          await prefs.setBool('afk_license_active', true);
+          activationSuccessful = true;
         }
+
         if (result['tier'] != null) {
           await prefs.setString('afk_license_tier', result['tier']);
         }
@@ -237,7 +245,9 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '🎉 Cảm ơn bạn đã chọn dịch vụ AFK Zone!',
+                      activationSuccessful
+                        ? '🎉 Cảm ơn bạn đã chọn dịch vụ AFK Zone!'
+                        : '⚠️ Thanh toán thành công! Vui lòng kích hoạt license thủ công.',
                       style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                     SizedBox(height: 12),

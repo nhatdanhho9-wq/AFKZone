@@ -71,9 +71,25 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
   Future<void> _loadActiveLicense() async {
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getBool('afk_license_active') == true) {
+      // Fallback chain: afk_license_key -> license_key -> latest paid history
+      String? licenseKey = prefs.getString('afk_license_key');
+      if (licenseKey == null || licenseKey.isEmpty) {
+        licenseKey = prefs.getString('license_key');
+      }
+      if (licenseKey == null || licenseKey.isEmpty) {
+        // Fallback to latest paid history (if available)
+        if (_purchaseHistory.isNotEmpty) {
+          final latestPaid = _purchaseHistory.firstWhere(
+            (h) => h['status'] == 'paid' || h['status'] == 'completed',
+            orElse: () => {},
+          );
+          licenseKey = latestPaid['license_key'];
+        }
+      }
+
       setState(() {
         _activeLicense = {
-          'license_key': prefs.getString('afk_license_key') ?? 'Unknown',
+          'license_key': licenseKey ?? 'Unknown',
           'tier': prefs.getString('afk_license_tier') ?? 'basic',
           'expires_at': _formatDate(prefs.getInt('afk_license_expires_at')),
           'status': 'active',
