@@ -158,6 +158,34 @@ class PaymentCreateRequest(BaseModel):
 def root():
     return {"service": "AFK Zone License API", "version": "2.2.0", "contact": "Zalo: 0823333374"}
 
+@app.get("/public/notifications")
+def get_public_notifications(db: Session = Depends(get_db)):
+    """Public: Get active notifications for mobile 'Thông tin & Thông báo' screen"""
+    results = db.execute(text("""
+        SELECT id, title, message, type, link_url, created_at
+        FROM admin_notifications
+        WHERE is_active = TRUE 
+          AND target = 'all'
+          AND (expires_at IS NULL OR expires_at > NOW())
+        ORDER BY display_order ASC, created_at DESC
+        LIMIT 20
+    """)).fetchall()
+    
+    return {
+        "notifications": [
+            {
+                "id": r[0],
+                "title": r[1],
+                "message": r[2],
+                "type": r[3],
+                "link_url": r[4],
+                "created_at": to_iso(r[5])
+            }
+            for r in results
+        ]
+    }
+
+
 @app.post("/activate")
 def activate_license(data: dict, db: Session = Depends(get_db)):
     """Activate license on a device - supports multi-device"""
