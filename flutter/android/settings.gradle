@@ -13,7 +13,10 @@ pluginManagement {
         google()
         mavenCentral()
         gradlePluginPortal()
-        // Fallback repositories for better reliability
+        // Fallback repositories for better reliability (CI 403 workaround)
+        maven { url 'https://maven.aliyun.com/repository/public' }
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
         maven { url 'https://repo1.maven.org/maven2' }
     }
 }
