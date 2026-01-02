@@ -473,8 +473,8 @@ async def bank_webhook(request: Request, db: Session = Depends(get_db)):
         body_str = body_bytes.decode('utf-8')
         
         # DEV MODE: Accept any x-casso-signature while investigating correct algorithm
-        # TODO: Implement correct Casso V2 signature verification once algorithm is confirmed
-        DEV_BYPASS_SIGNATURE = True  # Set to False in production after fixing signature
+        # PRODUCTION: Set to False to enforce signature verification
+        DEV_BYPASS_SIGNATURE = False  # DISABLED for production - Casso signatures must be verified
         
         signature_header = request.headers.get("x-casso-signature", "")
         secure_token = request.headers.get("secure-token", "")
@@ -2026,6 +2026,9 @@ def get_user_history(
         elif is_expired:
             status = "expired"
             
+        # Determine is_trial
+        is_trial = (tier == 'trial') or (source == 'trial')
+            
         licenses.append({
             "license_key": license_key,
             "tier": tier,
@@ -2036,7 +2039,8 @@ def get_user_history(
             "source": source,
             "device_count": device_count,
             "max_devices": max_devices,
-            "created_at": to_iso(created_at)
+            "created_at": to_iso(created_at),
+            "is_trial": is_trial
         })
 
     return {"licenses": licenses}
