@@ -1437,48 +1437,7 @@ def device_heartbeat(req: HeartbeatRequest, db: Session = Depends(get_db)):
 
     return {"success": True, "message": "Heartbeat received"}
 
-# ==================== ANALYTICS ====================
-
-@app.get("/admin/analytics/revenue")
-def get_revenue_analytics(period: str = "30d", token: dict = Depends(verify_token), db: Session = Depends(get_db)):
-    """Admin: Get revenue analytics"""
-    if period == "30d":
-        interval = "30 days"
-    elif period == "90d":
-        interval = "90 days"
-    else:
-        interval = "30 days"
-
-    # Total revenue
-    total = db.execute(text(f"""
-        SELECT COALESCE(SUM(amount), 0)
-        FROM payments
-        WHERE status='success' AND completed_at > NOW() - INTERVAL '{interval}'
-    """)).scalar() or 0
-
-    # Daily revenue
-    daily = db.execute(text(f"""
-        SELECT DATE(completed_at) as date, SUM(amount) as total
-        FROM payments
-        WHERE status='success' AND completed_at > NOW() - INTERVAL '{interval}'
-        GROUP BY DATE(completed_at)
-        ORDER BY date
-    """)).fetchall()
-
-    # By tier
-    by_tier = db.execute(text(f"""
-        SELECT tier, SUM(amount) as total
-        FROM payments
-        WHERE status='success' AND completed_at > NOW() - INTERVAL '{interval}'
-        GROUP BY tier
-    """)).fetchall()
-
-    return {
-        "total_revenue": total,
-        "daily_revenue": [{"date": r[0].isoformat(), "amount": int(r[1])} for r in daily],
-        "by_tier": {r[0]: int(r[1]) for r in by_tier}
-    }
-# Add to app.py - License Extend & User Renew
+# ==================== LICENSE EXTEND ====================
 
 # 1. ADMIN EXTEND - Fixed logic (extend from expires_at, not now)
 @app.put("/admin/licenses/{license_key}/extend")
