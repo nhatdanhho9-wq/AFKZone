@@ -354,7 +354,6 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
             ),
           ),
         ],
-        ),
       ),  // Close AlertDialog
       ),  // Close Theme
     );
