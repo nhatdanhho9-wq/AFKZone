@@ -697,19 +697,46 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
         raise HTTPException(status_code=401, detail="Invalid token")
 
 @app.post("/admin/login")
-def admin_login(req: AdminLoginRequest, db: Session = Depends(get_db)):
-    """Admin login - returns JWT token"""
+def admin_login(req: AdminLoginRequest, request: Request, db: Session = Depends(get_db)):
+    """Admin login - returns JWT token with lockout protection"""
+    from security_lockout import (
+        check_lockout, get_lockout_remaining, record_failed_login,
+        clear_failed_logins, log_successful_login
+    )
+    import logging
+    security_logger = logging.getLogger("admin_security")
+    
+    # Get client IP
+    client_ip = request.client.host if request.client else "unknown"
+    
+    # Check lockout BEFORE password verify
+    if check_lockout(client_ip):
+        remaining = get_lockout_remaining(client_ip)
+        security_logger.warning(f"Blocked login attempt from locked IP: ip={client_ip} remaining={remaining}s")
+        raise HTTPException(
+            status_code=429,
+            detail=f"Account temporarily locked. Try again in {remaining} seconds."
+        )
+    
     result = db.execute(
         text("SELECT * FROM admin_users WHERE username=:username"),
         {"username": req.username}
     ).fetchone()
 
     if not result:
+        # Record failed attempt (username not found)
+        record_failed_login(client_ip, req.username)
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     # Check password (bcrypt)
     if not bcrypt.checkpw(req.password.encode(), result[2].encode()):
+        # Record failed attempt (wrong password)
+        record_failed_login(client_ip, req.username)
         raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    # Login successful - clear failed attempts and log
+    clear_failed_logins(client_ip)
+    log_successful_login(client_ip, result[1])
 
     # Create JWT token
     access_token = create_access_token(
