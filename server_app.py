@@ -482,39 +482,82 @@ async def bank_webhook(request: Request, db: Session = Depends(get_db)):
         secret = BANK_CONFIG['casso_token']
         auth_valid = False
         
-        print(f"=== CASSO WEBHOOK DEBUG ===")
-        print(f"x-casso-signature present: {bool(signature_header)}")
-        print(f"secure-token present: {bool(secure_token)}")
+        # === COMPREHENSIVE LOGGING ===
+        print(f"=== CASSO WEBHOOK DEBUG (v3) ===")
+        print(f"[HEADERS] All headers (redacted):")
+        for k, v in request.headers.items():
+            if 'token' in k.lower() or 'secret' in k.lower():
+                print(f"  {k}: [REDACTED]")
+            elif 'signature' in k.lower():
+                print(f"  {k}: {v[:60]}..." if len(v) > 60 else f"  {k}: {v}")
+            else:
+                print(f"  {k}: {v[:100]}" if len(v) > 100 else f"  {k}: {v}")
+        
+        print(f"[BODY] Length: {len(body_bytes)} bytes")
+        print(f"[BODY] First 200 chars: {body_str[:200]}")
+        print(f"[AUTH] x-casso-signature present: {bool(signature_header)}")
+        print(f"[AUTH] secure-token present: {bool(secure_token)}")
+        print(f"[CONFIG] Secret token length: {len(secret)}")
         
         if signature_header:
             # Check if signature has t=...,v1=... format
             if "t=" in signature_header and "v1=" in signature_header:
-                # Casso Webhook V2: parse structured signature
+                # Casso Webhook V2: parse structured signature with strip()
                 sig_parts = {}
                 for part in signature_header.split(","):
+                    part = part.strip()  # FIX: strip whitespace
                     if "=" in part:
                         k, v = part.split("=", 1)
-                        sig_parts[k] = v
+                        sig_parts[k.strip()] = v.strip()  # FIX: strip both key and value
                 
                 timestamp = sig_parts.get("t", "")
                 signature = sig_parts.get("v1", "")
                 
-                # Try SHA512 first (original)
-                signed_payload = f"{timestamp}.{body_str}"
-                expected_sha512 = hmac.new(secret.encode(), signed_payload.encode(), hashlib.sha512).hexdigest()
-                expected_sha256 = hmac.new(secret.encode(), signed_payload.encode(), hashlib.sha256).hexdigest()
+                print(f"[SIG] Parsed timestamp: '{timestamp}'")
+                print(f"[SIG] Parsed v1 signature: '{signature[:60]}...'")
                 
-                print(f"Timestamp: {timestamp}")
-                print(f"Signature received: {signature[:50]}...")
-                print(f"Expected SHA512: {expected_sha512[:50]}...")
-                print(f"Expected SHA256: {expected_sha256[:50]}...")
+                # Try multiple approaches for signed_payload
+                # Approach 1: timestamp + "." + body_str (string concat)
+                signed_payload_str = f"{timestamp}.{body_str}"
+                expected_sha512_str = hmac.new(secret.encode(), signed_payload_str.encode(), hashlib.sha512).hexdigest()
+                expected_sha256_str = hmac.new(secret.encode(), signed_payload_str.encode(), hashlib.sha256).hexdigest()
                 
-                if signature == expected_sha512 or signature == expected_sha256:
+                # Approach 2: timestamp + "." as bytes + raw body_bytes
+                signed_payload_bytes = f"{timestamp}.".encode() + body_bytes
+                expected_sha512_bytes = hmac.new(secret.encode(), signed_payload_bytes, hashlib.sha512).hexdigest()
+                expected_sha256_bytes = hmac.new(secret.encode(), signed_payload_bytes, hashlib.sha256).hexdigest()
+                
+                # Approach 3: Just body (no timestamp)
+                expected_sha512_body = hmac.new(secret.encode(), body_bytes, hashlib.sha512).hexdigest()
+                expected_sha256_body = hmac.new(secret.encode(), body_bytes, hashlib.sha256).hexdigest()
+                
+                print(f"[SIG] Expected SHA512 (str): {expected_sha512_str[:60]}...")
+                print(f"[SIG] Expected SHA256 (str): {expected_sha256_str[:60]}...")
+                print(f"[SIG] Expected SHA512 (bytes): {expected_sha512_bytes[:60]}...")
+                print(f"[SIG] Expected SHA256 (bytes): {expected_sha256_bytes[:60]}...")
+                print(f"[SIG] Expected SHA512 (body only): {expected_sha512_body[:60]}...")
+                print(f"[SIG] Expected SHA256 (body only): {expected_sha256_body[:60]}...")
+                
+                # Check all possibilities
+                valid_signatures = [
+                    expected_sha512_str, expected_sha256_str,
+                    expected_sha512_bytes, expected_sha256_bytes,
+                    expected_sha512_body, expected_sha256_body
+                ]
+                
+                if signature in valid_signatures:
                     auth_valid = True
-                    print("✅ Structured signature verified!")
+                    match_idx = valid_signatures.index(signature)
+                    match_names = ['SHA512(str)', 'SHA256(str)', 'SHA512(bytes)', 'SHA256(bytes)', 'SHA512(body)', 'SHA256(body)']
+                    print(f"✅ Signature verified! Match: {match_names[match_idx]}")
+                else:
+                    print(f"❌ Signature mismatch! None of 6 approaches matched.")
+                    print(f"[DEBUG] Received sig starts with: {signature[:30]}")
+                    print(f"[DEBUG] SHA512(str) starts with: {expected_sha512_str[:30]}")
+                    print(f"[DEBUG] SHA512(bytes) starts with: {expected_sha512_bytes[:30]}")
             else:
                 # Raw signature (no t=,v1= format) - try multiple algorithms
-                signature = signature_header
+                signature = signature_header.strip()
                 
                 # Try with body_str
                 expected_sha512_str = hmac.new(secret.encode(), body_str.encode(), hashlib.sha512).hexdigest()
@@ -524,11 +567,11 @@ async def bank_webhook(request: Request, db: Session = Depends(get_db)):
                 expected_sha512_bytes = hmac.new(secret.encode(), body_bytes, hashlib.sha512).hexdigest()
                 expected_sha256_bytes = hmac.new(secret.encode(), body_bytes, hashlib.sha256).hexdigest()
                 
-                print(f"Raw signature received: {signature[:50]}...")
-                print(f"Expected SHA512 (str): {expected_sha512_str[:50]}...")
-                print(f"Expected SHA256 (str): {expected_sha256_str[:50]}...")
-                print(f"Expected SHA512 (bytes): {expected_sha512_bytes[:50]}...")
-                print(f"Expected SHA256 (bytes): {expected_sha256_bytes[:50]}...")
+                print(f"[SIG] Raw signature received: {signature[:50]}...")
+                print(f"[SIG] Expected SHA512 (str): {expected_sha512_str[:50]}...")
+                print(f"[SIG] Expected SHA256 (str): {expected_sha256_str[:50]}...")
+                print(f"[SIG] Expected SHA512 (bytes): {expected_sha512_bytes[:50]}...")
+                print(f"[SIG] Expected SHA256 (bytes): {expected_sha256_bytes[:50]}...")
                 
                 if signature in [expected_sha512_str, expected_sha256_str, expected_sha512_bytes, expected_sha256_bytes]:
                     auth_valid = True
