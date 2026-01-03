@@ -51,7 +51,7 @@ async function loadTiersData() {
     }
 }
 
-
+function renderTable(products) {
     // Sort by tier display_order + duration (newest not at bottom)
     products.sort((a, b) => {
         // Find tier display_order
