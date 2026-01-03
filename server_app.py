@@ -164,6 +164,65 @@ class PaymentCreateRequest(BaseModel):
     duration_days: int
     device_id: str
 
+# v2.2.56: New models for license assignment and renewal
+class AssignLicenseRequest(BaseModel):
+    license_key: str
+    device_id: str
+    device_alias: Optional[str] = None
+
+# v2.2.56: Helper function for renewal logic
+def process_renewal_or_new_license(db: Session, device_id: str, tier: str, duration_days: int):
+    """
+    Renewal logic:
+    - Same tier: extend existing license expiry from max(current_expiry, now) + duration_days
+    - Different tier: create new license, do NOT auto-activate
+    """
+    # Check existing active license for this device
+    existing = db.execute(text("""
+        SELECT l.id, l.license_key, l.tier, l.expires_at
+        FROM licenses l
+        JOIN license_devices ld ON l.license_key = ld.license_key
+        WHERE ld.device_id = :device_id
+          AND l.is_active = TRUE
+          AND (l.expires_at IS NULL OR l.expires_at > NOW())
+        ORDER BY l.expires_at DESC NULLS FIRST
+        LIMIT 1
+    """), {"device_id": device_id}).fetchone()
+    
+    if existing and existing[2].lower() == tier.lower():
+        # SAME TIER: Extend existing license
+        current_expiry = existing[3]
+        base_date = max(current_expiry, datetime.now()) if current_expiry else datetime.now()
+        new_expiry = base_date + timedelta(days=duration_days)
+        db.execute(text("""
+            UPDATE licenses SET expires_at = :expiry WHERE id = :id
+        """), {"expiry": new_expiry, "id": existing[0]})
+        return {
+            "action": "extended",
+            "license_key": existing[1],
+            "expires_at": new_expiry.isoformat(),
+            "message": f"License extended by {duration_days} days"
+        }
+    else:
+        # DIFFERENT TIER or NO EXISTING: Create new license, NO auto-activate
+        license_key = f"AFK-{secrets.token_hex(16).upper()}"
+        expires_at = datetime.now() + timedelta(days=duration_days)
+        max_devices = get_max_devices_for_tier(tier)
+        
+        db.execute(text("""
+            INSERT INTO licenses (license_key, tier, duration_days, max_devices, expires_at, is_active, created_at)
+            VALUES (:key, :tier, :days, :max, :exp, TRUE, NOW())
+        """), {"key": license_key, "tier": tier, "days": duration_days, "max": max_devices, "exp": expires_at})
+        
+        # DO NOT insert into license_devices - user must manually assign via /api/license/assign
+        return {
+            "action": "created",
+            "license_key": license_key,
+            "expires_at": expires_at.isoformat(),
+            "needs_activation": True,
+            "message": "New license created. Please assign to device to activate."
+        }
+
 @app.get("/")
 def root():
     return {"service": "AFK Zone License API", "version": "2.2.0", "contact": "Zalo: 0823333374"}
@@ -435,6 +494,244 @@ def health(db: Session = Depends(get_db)):
     except:
         return {"status": "unhealthy", "database": "disconnected"}
 
+# ==================== v2.2.56: PUBLIC REGIONS API ====================
+
+# Define available server regions
+SERVER_REGIONS = [
+    {
+        "id": "default",
+        "display_name": "Vietnam (Default)",
+        "id_server": "id.afkzone.cloud",
+        "relay_server": "id.afkzone.cloud",
+        "key": "EXOW136uTrC0PYYrkavoJH7SjkFlzPjB+vzzpvjsybw=",
+        "enabled": True,
+        "sort_order": 0
+    }
+    # Add more regions here as needed:
+    # {
+    #     "id": "sg",
+    #     "display_name": "Singapore",
+    #     "id_server": "sg.afkzone.cloud",
+    #     "relay_server": "sg.afkzone.cloud",
+    #     "key": "...",
+    #     "enabled": True,
+    #     "sort_order": 1
+    # }
+]
+
+@app.get("/public/regions")
+async def get_public_regions():
+    """
+    v2.2.56: Get available server regions for manual selection.
+    Auth: NONE (public endpoint)
+    Returns: display_name, id_server, relay_server, key, enabled, sort_order
+    """
+    # Return only enabled regions, sorted by sort_order
+    enabled_regions = [r for r in SERVER_REGIONS if r.get("enabled", True)]
+    enabled_regions.sort(key=lambda x: x.get("sort_order", 0))
+    return {"regions": enabled_regions}
+
+# ==================== v2.2.56: LICENSE ASSIGNMENT & DEVICE SLOTS ====================
+# 
+# AUTH SCHEME DOCUMENTATION:
+# 
+# /api/license/assign        - Auth: device_id in request body (user endpoint)
+# /api/license/{key}/slots   - Auth: NONE (public, license_key acts as auth)
+# /api/license/device/alias  - Auth: NONE (public, device_id acts as auth)
+# /api/devices/list          - Auth: device_id query param (user endpoint)
+# /user/purchase-history     - Auth: device_id query param (user endpoint)
+# /public/regions            - Auth: NONE (public endpoint)
+#
+
+@app.post("/api/license/assign")
+async def assign_license(req: AssignLicenseRequest, db: Session = Depends(get_db)):
+    """
+    v2.2.56: Assign a license to a device with optional alias.
+    Used when renewal creates a new license (different tier) that needs manual activation.
+    """
+    # Check license exists and is active
+    license = db.execute(text("""
+        SELECT id, license_key, tier, max_devices, expires_at, is_active
+        FROM licenses WHERE license_key = :key
+    """), {"key": req.license_key}).fetchone()
+    
+    if not license:
+        raise HTTPException(status_code=404, detail="License not found")
+    if not license[5]:  # is_active
+        raise HTTPException(status_code=400, detail="License is not active")
+    if license[4] and license[4] < datetime.now():  # expires_at
+        raise HTTPException(status_code=400, detail="License has expired")
+    
+    # Check device slots
+    current_devices = db.execute(text("""
+        SELECT COUNT(*) FROM license_devices WHERE license_key = :key
+    """), {"key": req.license_key}).scalar()
+    
+    max_devices = license[3]
+    if max_devices != -1 and current_devices >= max_devices:
+        raise HTTPException(status_code=400, detail=f"Max devices reached ({current_devices}/{max_devices})")
+    
+    # Check if device already assigned to this license
+    existing = db.execute(text("""
+        SELECT id FROM license_devices WHERE license_key = :key AND device_id = :did
+    """), {"key": req.license_key, "did": req.device_id}).fetchone()
+    
+    if existing:
+        # Update alias only
+        db.execute(text("""
+            UPDATE license_devices SET device_alias = :alias WHERE id = :id
+        """), {"alias": req.device_alias, "id": existing[0]})
+        db.commit()
+        return {"success": True, "action": "updated", "license_key": req.license_key, "device_id": req.device_id, "alias": req.device_alias}
+    else:
+        # Insert new device
+        db.execute(text("""
+            INSERT INTO license_devices (license_key, device_id, device_alias, activated_at)
+            VALUES (:key, :did, :alias, NOW())
+        """), {"key": req.license_key, "did": req.device_id, "alias": req.device_alias})
+        db.commit()
+        return {"success": True, "action": "assigned", "license_key": req.license_key, "device_id": req.device_id, "alias": req.device_alias}
+
+@app.get("/api/license/{license_key}/slots")
+async def get_license_slots(license_key: str, db: Session = Depends(get_db)):
+    """
+    v2.2.56: Get device slot usage for a license.
+    Returns used_devices, max_devices, and list of assigned devices with aliases.
+    """
+    license = db.execute(text("""
+        SELECT id, license_key, tier, max_devices, expires_at, is_active
+        FROM licenses WHERE license_key = :key
+    """), {"key": license_key}).fetchone()
+    
+    if not license:
+        raise HTTPException(status_code=404, detail="License not found")
+    
+    devices = db.execute(text("""
+        SELECT device_id, device_alias, activated_at
+        FROM license_devices WHERE license_key = :key
+        ORDER BY activated_at ASC
+    """), {"key": license_key}).fetchall()
+    
+    return {
+        "license_key": license_key,
+        "tier": license[2],
+        "max_devices": license[3],
+        "used_devices": len(devices),
+        "available_slots": -1 if license[3] == -1 else max(0, license[3] - len(devices)),
+        "expires_at": to_iso(license[4]),
+        "is_active": license[5],
+        "devices": [
+            {
+                "device_id": d[0],
+                "alias": d[1],
+                "activated_at": to_iso(d[2])
+            }
+            for d in devices
+        ]
+    }
+
+@app.patch("/api/license/device/{device_id}/alias")
+async def update_device_alias(device_id: str, alias: str, db: Session = Depends(get_db)):
+    """
+    v2.2.56: Update device alias for a device.
+    """
+    result = db.execute(text("""
+        UPDATE license_devices SET device_alias = :alias WHERE device_id = :did
+    """), {"alias": alias, "did": device_id})
+    
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    db.commit()
+    return {"success": True, "device_id": device_id, "alias": alias}
+
+@app.get("/api/devices/list")
+async def list_devices_for_assign(device_id: Optional[str] = None, db: Session = Depends(get_db)):
+    """
+    v2.2.56: List devices for license assignment UI.
+    Returns device_id, alias, last_seen for dropdown selection.
+    If device_id provided, filter to devices associated with that device's licenses.
+    """
+    if device_id:
+        # Get devices associated with licenses that this device has access to
+        devices = db.execute(text("""
+            SELECT DISTINCT ld.device_id, ld.device_alias, ld.activated_at as last_seen
+            FROM license_devices ld
+            WHERE ld.license_key IN (
+                SELECT license_key FROM license_devices WHERE device_id = :did
+            )
+            ORDER BY ld.activated_at DESC
+        """), {"did": device_id}).fetchall()
+    else:
+        # Get all devices (for admin or when no filter)
+        devices = db.execute(text("""
+            SELECT device_id, device_alias, activated_at as last_seen
+            FROM license_devices
+            ORDER BY activated_at DESC
+            LIMIT 100
+        """)).fetchall()
+    
+    return {
+        "devices": [
+            {
+                "device_id": d[0],
+                "alias": d[1],
+                "last_seen": to_iso(d[2])
+            }
+            for d in devices
+        ]
+    }
+
+@app.get("/user/purchase-history")
+async def get_user_purchase_history(device_id: str, db: Session = Depends(get_db)):
+    """
+    v2.2.56: Get purchase history for a device with devices_used/devices_max per license.
+    UI displays: order info + slot usage (e.g., 0/2, 1/5)
+    """
+    # Get orders for this device
+    orders = db.execute(text("""
+        SELECT bo.id, bo.trans_code, bo.tier, bo.duration_days, bo.amount, 
+               bo.status, bo.license_key, bo.created_at, bo.paid_at
+        FROM bank_orders bo
+        WHERE bo.device_id = :did
+        ORDER BY bo.created_at DESC
+        LIMIT 50
+    """), {"did": device_id}).fetchall()
+    
+    result = []
+    for order in orders:
+        order_data = {
+            "id": order[0],
+            "trans_code": order[1],
+            "tier": order[2],
+            "duration_days": order[3],
+            "amount": order[4],
+            "status": order[5],
+            "license_key": order[6],
+            "created_at": to_iso(order[7]),
+            "paid_at": to_iso(order[8]),
+            "devices_used": 0,
+            "devices_max": 0
+        }
+        
+        # If order has license, get slot usage
+        if order[6]:  # license_key exists
+            license_info = db.execute(text("""
+                SELECT max_devices,
+                       (SELECT COUNT(*) FROM license_devices WHERE license_key = :key) as used
+                FROM licenses WHERE license_key = :key
+            """), {"key": order[6]}).fetchone()
+            
+            if license_info:
+                order_data["devices_max"] = license_info[0] if license_info[0] != -1 else -1
+                order_data["devices_used"] = license_info[1]
+        
+        result.append(order_data)
+    
+    return {"orders": result}
+
+
+
 # Bank Transfer Configuration
 BANK_CONFIG = {
     "bank_id": "970422",
@@ -690,29 +987,22 @@ async def bank_webhook(request: Request, db: Session = Depends(get_db)):
                 print(f"⚠️ Amount mismatch: expected {order_amount}, got {amount} (diff={abs(amount-order_amount)})")
                 continue
             
-            # Generate license
-            license_key = f"AFK-{secrets.token_hex(16).upper()}"
+            # v2.2.56: Use renewal logic instead of always creating new license
             tier = order[3]
             duration_days = order[4]
             device_id = order[2]  # order[0]=id, [1]=trans_code, [2]=device_id
             
-            # Create license in licenses table
-            expires_at = datetime.now() + timedelta(days=duration_days)
-            max_devices = get_max_devices_for_tier(tier)  # basic=2, pro=5, enterprise=-1
+            # Process renewal or create new license
+            renewal_result = process_renewal_or_new_license(db, device_id, tier, duration_days)
+            license_key = renewal_result["license_key"]
             
-            result = db.execute(text("""
-                INSERT INTO licenses (license_key, tier, duration_days, max_devices, expires_at, is_active, created_at)
-                VALUES (:key, :tier, :days, :max, :exp, TRUE, NOW())
-                RETURNING id
-            """), {"key": license_key, "tier": tier, "days": duration_days, "max": max_devices, "exp": expires_at})
-            
-            license_id = result.fetchone()[0]
-            
-            # Activate license for device
-            db.execute(text("""
-                INSERT INTO license_devices (license_key, device_id, activated_at)
-                VALUES (:key, :did, NOW())
-            """), {"key": license_key, "did": device_id})
+            # v2.2.56 SPEC: Different tier creates new license but does NOT auto-activate
+            # User must manually assign via /api/license/assign (UI: "Kích hoạt máy này")
+            if renewal_result["action"] == "created":
+                # DO NOT auto-assign - per spec: "khác gói tạo license mới, KHÔNG auto-activate"
+                print(f"📦 New license {license_key} created (needs manual activation via UI)")
+            else:
+                print(f"🔄 License {license_key} extended (same tier renewal)")
             
             # Update order status
             db.execute(text("""
@@ -722,7 +1012,7 @@ async def bank_webhook(request: Request, db: Session = Depends(get_db)):
             """), {"key": license_key, "tid": tid, "code": trans_code})
             
             db.commit()
-            print(f"✅ Webhook completed order {trans_code}: License {license_key} for device {device_id[:20]}...")
+            print(f"✅ Webhook completed order {trans_code}: {renewal_result['action']} license {license_key} for device {device_id[:20]}...")
         return {"success":True,"return_code":1}
     except HTTPException:
         raise
