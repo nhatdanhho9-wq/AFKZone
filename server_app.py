@@ -517,44 +517,78 @@ async def bank_webhook(request: Request, db: Session = Depends(get_db)):
                 print(f"[SIG] Parsed v1 signature: '{signature[:60]}...'")
                 
                 # Try multiple approaches for signed_payload
-                # Approach 1: timestamp + "." + body_str (string concat)
+                # Casso V2 documentation: sort JSON keys before signing
+                
+                # Parse and sort JSON
+                try:
+                    body_json = json.loads(body_str)
+                    sorted_body = json.dumps(body_json, sort_keys=True, separators=(',', ':'))
+                    print(f"[SIG] Sorted body (first 100): {sorted_body[:100]}...")
+                except:
+                    sorted_body = body_str
+                    print("[SIG] Body is not valid JSON, using raw")
+                
+                # Approach 1: timestamp + "." + sorted JSON (Casso V2 standard)
+                signed_payload_sorted = f"{timestamp}.{sorted_body}"
+                expected_sha512_sorted = hmac.new(secret.encode(), signed_payload_sorted.encode(), hashlib.sha512).hexdigest()
+                expected_sha256_sorted = hmac.new(secret.encode(), signed_payload_sorted.encode(), hashlib.sha256).hexdigest()
+                
+                # Approach 2: timestamp + "." + body_str (string concat, no sort)
                 signed_payload_str = f"{timestamp}.{body_str}"
                 expected_sha512_str = hmac.new(secret.encode(), signed_payload_str.encode(), hashlib.sha512).hexdigest()
                 expected_sha256_str = hmac.new(secret.encode(), signed_payload_str.encode(), hashlib.sha256).hexdigest()
                 
-                # Approach 2: timestamp + "." as bytes + raw body_bytes
+                # Approach 3: timestamp + "." as bytes + raw body_bytes
                 signed_payload_bytes = f"{timestamp}.".encode() + body_bytes
                 expected_sha512_bytes = hmac.new(secret.encode(), signed_payload_bytes, hashlib.sha512).hexdigest()
                 expected_sha256_bytes = hmac.new(secret.encode(), signed_payload_bytes, hashlib.sha256).hexdigest()
                 
-                # Approach 3: Just body (no timestamp)
+                # Approach 4: Just body (no timestamp)
                 expected_sha512_body = hmac.new(secret.encode(), body_bytes, hashlib.sha512).hexdigest()
                 expected_sha256_body = hmac.new(secret.encode(), body_bytes, hashlib.sha256).hexdigest()
                 
+                # Approach 5: Just sorted body (no timestamp)
+                expected_sha512_sorted_only = hmac.new(secret.encode(), sorted_body.encode(), hashlib.sha512).hexdigest()
+                expected_sha256_sorted_only = hmac.new(secret.encode(), sorted_body.encode(), hashlib.sha256).hexdigest()
+                
+                print(f"[SIG] Expected SHA512 (sorted): {expected_sha512_sorted[:60]}...")
+                print(f"[SIG] Expected SHA256 (sorted): {expected_sha256_sorted[:60]}...")
                 print(f"[SIG] Expected SHA512 (str): {expected_sha512_str[:60]}...")
                 print(f"[SIG] Expected SHA256 (str): {expected_sha256_str[:60]}...")
                 print(f"[SIG] Expected SHA512 (bytes): {expected_sha512_bytes[:60]}...")
                 print(f"[SIG] Expected SHA256 (bytes): {expected_sha256_bytes[:60]}...")
                 print(f"[SIG] Expected SHA512 (body only): {expected_sha512_body[:60]}...")
                 print(f"[SIG] Expected SHA256 (body only): {expected_sha256_body[:60]}...")
+                print(f"[SIG] Expected SHA512 (sorted body): {expected_sha512_sorted_only[:60]}...")
+                print(f"[SIG] Expected SHA256 (sorted body): {expected_sha256_sorted_only[:60]}...")
                 
-                # Check all possibilities
+                # Check all possibilities (case-insensitive)
+                signature_lower = signature.lower()
                 valid_signatures = [
+                    expected_sha512_sorted, expected_sha256_sorted,
                     expected_sha512_str, expected_sha256_str,
                     expected_sha512_bytes, expected_sha256_bytes,
-                    expected_sha512_body, expected_sha256_body
+                    expected_sha512_body, expected_sha256_body,
+                    expected_sha512_sorted_only, expected_sha256_sorted_only
                 ]
                 
-                if signature in valid_signatures:
-                    auth_valid = True
-                    match_idx = valid_signatures.index(signature)
-                    match_names = ['SHA512(str)', 'SHA256(str)', 'SHA512(bytes)', 'SHA256(bytes)', 'SHA512(body)', 'SHA256(body)']
-                    print(f"✅ Signature verified! Match: {match_names[match_idx]}")
-                else:
-                    print(f"❌ Signature mismatch! None of 6 approaches matched.")
+                match_found = False
+                for idx, expected in enumerate(valid_signatures):
+                    if signature_lower == expected.lower():
+                        match_found = True
+                        auth_valid = True
+                        match_names = ['SHA512(sorted)', 'SHA256(sorted)', 'SHA512(str)', 'SHA256(str)', 
+                                       'SHA512(bytes)', 'SHA256(bytes)', 'SHA512(body)', 'SHA256(body)',
+                                       'SHA512(sorted body)', 'SHA256(sorted body)']
+                        print(f"✅ Signature verified! Match: {match_names[idx]}")
+                        break
+                
+                if not match_found:
+                    print(f"❌ Signature mismatch! None of 10 approaches matched.")
                     print(f"[DEBUG] Received sig starts with: {signature[:30]}")
+                    print(f"[DEBUG] SHA512(sorted) starts with: {expected_sha512_sorted[:30]}")
+                    print(f"[DEBUG] SHA256(sorted) starts with: {expected_sha256_sorted[:30]}")
                     print(f"[DEBUG] SHA512(str) starts with: {expected_sha512_str[:30]}")
-                    print(f"[DEBUG] SHA512(bytes) starts with: {expected_sha512_bytes[:30]}")
             else:
                 # Raw signature (no t=,v1= format) - try multiple algorithms
                 signature = signature_header.strip()
