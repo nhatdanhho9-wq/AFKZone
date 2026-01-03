@@ -78,9 +78,19 @@ CASSO_WEBHOOK_TOKEN = require_env("CASSO_WEBHOOK_TOKEN")
 
 app = FastAPI(title="AFK Zone License API v2.2.0")
 
+# CORS Configuration - Tightened for admin UI security
+# Production: admin.afkzone.cloud only
+# Dev mode: add localhost:3000 via CORS_DEV_MODE=true
+CORS_ORIGINS = [
+    "https://admin.afkzone.cloud",
+    "https://api.afkzone.cloud",
+]
+if os.getenv("CORS_DEV_MODE", "").lower() == "true":
+    CORS_ORIGINS.append("http://localhost:3000")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -2283,6 +2293,32 @@ def get_user_notifications(device_id: str, db: Session = Depends(get_db)):
         "unread": len(notifications),
         "notifications": notifications
     }
+
+@app.get("/public/notifications")
+def get_public_notifications(db: Session = Depends(get_db)):
+    """Public: Get active notifications for all users (mobile app)"""
+    results = db.execute(text("""
+        SELECT id, title, message, type, link_url, display_order, created_at, expires_at
+        FROM admin_notifications
+        WHERE is_active=TRUE
+          AND target='all'
+          AND (expires_at IS NULL OR expires_at > NOW())
+        ORDER BY display_order ASC, created_at DESC
+        LIMIT 50
+    """)).fetchall()
+
+    notifications = [{
+        "id": r[0],
+        "title": r[1],
+        "message": r[2],
+        "type": r[3] or "info",
+        "link_url": r[4],
+        "display_order": r[5] or 0,
+        "created_at": to_iso(r[6]),
+        "expires_at": to_iso(r[7])
+    } for r in results]
+
+    return {"notifications": notifications}
 
 @app.post("/admin/notifications")
 def create_notification(notif: NotificationCreate, token: dict = Depends(verify_token), db: Session = Depends(get_db)):
