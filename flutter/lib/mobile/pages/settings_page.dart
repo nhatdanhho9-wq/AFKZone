@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:http/http.dart' as http;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common/widgets/setting_widgets.dart';
@@ -404,6 +405,92 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
         ),
       );
     }
+  }
+
+  void _showDeviceAliasDialog() async {
+    final prefs = await SharedPreferences.getInstance();
+    final currentAlias = prefs.getString('device_alias') ?? '';
+    final controller = TextEditingController(text: currentAlias);
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.edit, color: Colors.blue),
+            SizedBox(width: 8),
+            Text('Đặt tên thiết bị'),
+          ],
+        ),
+        content: TextField(
+          controller: controller,
+          decoration: InputDecoration(
+            labelText: 'Alias',
+            hintText: 'Ví dụ: Điện thoại công việc',
+            border: OutlineInputBorder(),
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Hủy'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final newAlias = controller.text.trim();
+              await prefs.setString('device_alias', newAlias);
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Đã lưu tên thiết bị: $newAlias')),
+              );
+            },
+            child: Text('Lưu'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showRegionSwitchDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => _RegionSwitchDialogContent(onApply: _applyRegion),
+    );
+  }
+
+  void _applyRegion(Map<String, dynamic> region) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('selected_region', region['code'] ?? 'vietnam');
+    await prefs.setString('id_server', region['id_server'] ?? 'id.afkzone.cloud');
+    await prefs.setString('relay_server', region['relay_server'] ?? 'id.afkzone.cloud');
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Đã chọn vùng'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.check_circle, color: Colors.green, size: 48),
+            SizedBox(height: 12),
+            Text('Vùng máy chủ: ${region['name'] ?? region['code']}'),
+            SizedBox(height: 8),
+            Text(
+              'Khởi động lại ứng dụng để áp dụng thay đổi.',
+              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -877,6 +964,60 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                 title: Text('Chưa có license'),
                 leading: Icon(Icons.warning, color: Colors.orange),
               ),
+          ],
+        ),
+        // Device ID & Alias Section (Feature 5)
+        SettingsSection(
+          title: Text('Thiết bị này'),
+          tiles: [
+            SettingsTile(
+              title: FutureBuilder<String>(
+                future: LicenseService.getDeviceFingerprint(),
+                builder: (context, snapshot) {
+                  final deviceId = snapshot.data ?? 'Đang tải...';
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Device ID:', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      SizedBox(height: 4),
+                      SelectableText(
+                        deviceId,
+                        style: TextStyle(fontSize: 12, fontFamily: 'monospace'),
+                      ),
+                    ],
+                  );
+                },
+              ),
+              leading: Icon(Icons.perm_device_information),
+              trailing: IconButton(
+                icon: Icon(Icons.copy, size: 20),
+                onPressed: () async {
+                  final deviceId = await LicenseService.getDeviceFingerprint();
+                  await Clipboard.setData(ClipboardData(text: deviceId));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Đã copy Device ID')),
+                  );
+                },
+              ),
+            ),
+            SettingsTile(
+              title: Text('Đặt tên thiết bị'),
+              description: Text('Đặt alias để dễ nhận diện'),
+              leading: Icon(Icons.edit),
+              onPressed: (context) => _showDeviceAliasDialog(),
+            ),
+          ],
+        ),
+        // Region Switch Section (Feature 6)
+        SettingsSection(
+          title: Text('Máy chủ'),
+          tiles: [
+            SettingsTile(
+              title: Text('Chọn vùng máy chủ'),
+              description: Text('Cài đặt server region'),
+              leading: Icon(Icons.public),
+              onPressed: (context) => _showRegionSwitchDialog(),
+            ),
           ],
         ),
         SettingsSection(title: Text(translate("Settings")), tiles: [
@@ -1506,4 +1647,132 @@ SettingsTile _getPopupDialogRadioEntry({
       child: Obx(() => Text(translate(valueText.value))),
     ),
   );
+}
+
+// Region Switch Dialog Content - fetches from GET /public/regions
+class _RegionSwitchDialogContent extends StatefulWidget {
+  final Function(Map<String, dynamic>) onApply;
+  
+  const _RegionSwitchDialogContent({Key? key, required this.onApply}) : super(key: key);
+  
+  @override
+  _RegionSwitchDialogContentState createState() => _RegionSwitchDialogContentState();
+}
+
+class _RegionSwitchDialogContentState extends State<_RegionSwitchDialogContent> {
+  List<Map<String, dynamic>> _regions = [];
+  bool _isLoading = true;
+  String? _error;
+  
+  @override
+  void initState() {
+    super.initState();
+    _loadRegions();
+  }
+  
+  Future<void> _loadRegions() async {
+    try {
+      final response = await http.get(
+        Uri.parse('https://api.afkzone.cloud/public/regions'),
+        headers: {'Cache-Control': 'no-cache'},
+      ).timeout(Duration(seconds: 10));
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(utf8.decode(response.bodyBytes));
+        final List<dynamic> regionsJson = data['regions'] ?? [];
+        setState(() {
+          _regions = regionsJson.map((r) => Map<String, dynamic>.from(r)).toList();
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          _error = 'Không thể tải danh sách vùng';
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _error = 'Lỗi kết nối: $e';
+        _isLoading = false;
+      });
+    }
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Row(
+        children: [
+          Icon(Icons.public, color: Colors.blue),
+          SizedBox(width: 8),
+          Text('Chọn vùng máy chủ'),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Warning message
+          Container(
+            padding: EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.orange.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.orange.shade200),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.warning_amber, color: Colors.orange, size: 20),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '2 máy phải cùng server để kết nối được với nhau.',
+                    style: TextStyle(fontSize: 13, color: Colors.orange.shade900),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(height: 16),
+          Text('Chọn vùng:', style: TextStyle(fontWeight: FontWeight.w500)),
+          SizedBox(height: 8),
+          // Region list
+          if (_isLoading)
+            Center(child: CircularProgressIndicator())
+          else if (_error != null)
+            Text(_error!, style: TextStyle(color: Colors.red))
+          else
+            ..._regions.map((region) => ListTile(
+              title: Text(region['name'] ?? region['code'] ?? 'Unknown'),
+              subtitle: Text(region['id_server'] ?? ''),
+              leading: Icon(
+                Icons.flag,
+                color: region['is_default'] == true ? Colors.red : Colors.blue,
+              ),
+              trailing: region['is_default'] == true 
+                ? Container(
+                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade100,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text('Mặc định', style: TextStyle(fontSize: 10, color: Colors.green)),
+                  )
+                : null,
+              onTap: () {
+                Navigator.pop(context);
+                widget.onApply(region);
+              },
+              dense: true,
+            )).toList(),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text('Đóng'),
+        ),
+      ],
+    );
+  }
 }

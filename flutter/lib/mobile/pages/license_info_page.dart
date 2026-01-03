@@ -1,7 +1,11 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
+import 'package:http/http.dart' as http;
+import '../widgets/renewal_dialog.dart';
+import '../../common/license_service.dart';
 
 class LicenseInfoPage extends StatefulWidget {
   @override
@@ -77,6 +81,29 @@ class _LicenseInfoPageState extends State<LicenseInfoPage> {
         ),
       );
     }
+  }
+
+  void _showRenewalDialog() {
+    if (_licenseKey == null || _tier == null) return;
+    showDialog(
+      context: context,
+      builder: (context) => RenewalDialog(
+        currentTier: _tier!,
+        licenseKey: _licenseKey!,
+        expiresAt: _expiresAt,
+      ),
+    );
+  }
+
+  void _showAssignLicenseDialog() {
+    if (_licenseKey == null) return;
+    showDialog(
+      context: context,
+      builder: (context) => _AssignLicenseDialogContent(
+        licenseKey: _licenseKey!,
+        onCopyKey: _copyLicenseKey,
+      ),
+    );
   }
 
   @override
@@ -316,6 +343,47 @@ class _LicenseInfoPageState extends State<LicenseInfoPage> {
                 ),
               ),
             ),
+
+            SizedBox(height: 16),
+
+            // Action Buttons Card
+            Card(
+              elevation: 4,
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Thao tác',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    SizedBox(height: 12),
+                    // Renewal button
+                    ElevatedButton.icon(
+                      onPressed: () => _showRenewalDialog(),
+                      icon: Icon(Icons.autorenew),
+                      label: Text('Gia hạn License'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                    SizedBox(height: 8),
+                    // Assign license button
+                    OutlinedButton.icon(
+                      onPressed: () => _showAssignLicenseDialog(),
+                      icon: Icon(Icons.devices),
+                      label: Text('Gán license cho thiết bị khác'),
+                      style: OutlinedButton.styleFrom(
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -354,6 +422,195 @@ class _LicenseInfoPageState extends State<LicenseInfoPage> {
           ),
         ],
       ),
+    );
+  }
+}
+
+// Assign License Dialog Content - fetches from /api/devices/list
+class _AssignLicenseDialogContent extends StatefulWidget {
+  final String licenseKey;
+  final VoidCallback onCopyKey;
+  
+  const _AssignLicenseDialogContent({
+    Key? key,
+    required this.licenseKey,
+    required this.onCopyKey,
+  }) : super(key: key);
+  
+  @override
+  _AssignLicenseDialogContentState createState() => _AssignLicenseDialogContentState();
+}
+
+class _AssignLicenseDialogContentState extends State<_AssignLicenseDialogContent> {
+  List<Map<String, dynamic>> _devices = [];
+  bool _isLoading = true;
+  bool _isAssigning = false;
+  String? _error;
+  
+  @override
+  void initState() {
+    super.initState();
+    _loadDevices();
+  }
+  
+  Future<void> _loadDevices() async {
+    try {
+      final deviceId = await LicenseService.getDeviceFingerprint();
+      final response = await http.get(
+        Uri.parse('https://api.afkzone.cloud/api/devices/list?device_id=$deviceId'),
+        headers: {'Cache-Control': 'no-cache'},
+      ).timeout(Duration(seconds: 10));
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(utf8.decode(response.bodyBytes));
+        final List<dynamic> devicesJson = data['devices'] ?? [];
+        setState(() {
+          _devices = devicesJson.map((d) => Map<String, dynamic>.from(d)).toList();
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          _error = 'Không thể tải danh sách thiết bị';
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _error = 'Lỗi kết nối';
+        _isLoading = false;
+      });
+    }
+  }
+  
+  Future<void> _assignToDevice(Map<String, dynamic> device) async {
+    setState(() => _isAssigning = true);
+    try {
+      final response = await http.post(
+        Uri.parse('https://api.afkzone.cloud/api/license/assign'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'license_key': widget.licenseKey,
+          'target_device_id': device['device_id'],
+        }),
+      ).timeout(Duration(seconds: 10));
+      
+      if (response.statusCode == 200) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Đã gán license cho ${device['alias'] ?? device['device_id']}'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        setState(() => _isAssigning = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Không thể gán license'), backgroundColor: Colors.red),
+        );
+      }
+    } catch (e) {
+      setState(() => _isAssigning = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Lỗi kết nối'), backgroundColor: Colors.red),
+      );
+    }
+  }
+  
+  String _formatLastSeen(dynamic lastSeen) {
+    if (lastSeen == null) return 'Chưa rõ';
+    try {
+      final date = DateTime.parse(lastSeen.toString());
+      return DateFormat('dd/MM/yyyy HH:mm').format(date);
+    } catch (e) {
+      return lastSeen.toString();
+    }
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Row(
+        children: [
+          Icon(Icons.devices, color: Colors.blue),
+          SizedBox(width: 8),
+          Text('Gán License'),
+        ],
+      ),
+      content: Container(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (_isLoading)
+              Center(child: CircularProgressIndicator())
+            else if (_error != null)
+              Column(
+                children: [
+                  Text(_error!, style: TextStyle(color: Colors.red)),
+                  SizedBox(height: 12),
+                  Text(
+                    'Bạn có thể copy license key và nhập vào thiết bị khác.',
+                    style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                  ),
+                ],
+              )
+            else if (_devices.isEmpty)
+              Column(
+                children: [
+                  Icon(Icons.devices_other, size: 48, color: Colors.grey),
+                  SizedBox(height: 12),
+                  Text('Chưa có thiết bị nào khác.'),
+                  SizedBox(height: 8),
+                  Text(
+                    'Copy license key để kích hoạt trên thiết bị khác.',
+                    style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                  ),
+                ],
+              )
+            else ...[
+              Text('Chọn thiết bị:', style: TextStyle(fontWeight: FontWeight.w500)),
+              SizedBox(height: 8),
+              ..._devices.map((device) => ListTile(
+                title: Text(device['alias'] ?? 'Thiết bị'),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'ID: ${(device['device_id'] ?? '').toString().substring(0, 8)}...',
+                      style: TextStyle(fontSize: 11, fontFamily: 'monospace'),
+                    ),
+                    Text(
+                      'Lần cuối: ${_formatLastSeen(device['last_seen'])}',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                  ],
+                ),
+                leading: Icon(Icons.phone_android, color: Colors.blue),
+                trailing: _isAssigning
+                    ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                    : Icon(Icons.arrow_forward_ios, size: 16),
+                onTap: _isAssigning ? null : () => _assignToDevice(device),
+                dense: true,
+              )).toList(),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text('Đóng'),
+        ),
+        ElevatedButton.icon(
+          onPressed: () {
+            widget.onCopyKey();
+            Navigator.pop(context);
+          },
+          icon: Icon(Icons.copy, size: 16),
+          label: Text('Copy License Key'),
+        ),
+      ],
     );
   }
 }

@@ -189,8 +189,8 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
     final tier = license['tier'] ?? 'unknown';
     final expiresAt = license['expires_at'] ?? '';
     final status = license['status'] ?? 'unknown';
-    
-    // ... rest of method
+    final devicesUsed = license['devices_used'] ?? 0;
+    final devicesMax = license['devices_max'] ?? license['max_devices'] ?? 1;
     
     Color statusColor = Colors.grey;
     String statusText = status;
@@ -238,6 +238,26 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
                   style: TextStyle(color: statusColor, fontSize: 11, fontWeight: FontWeight.bold),
                 ),
               ),
+              SizedBox(width: 8),
+              // Devices used/max badge
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.devices, size: 12, color: Colors.blue),
+                    SizedBox(width: 4),
+                    Text(
+                      '$devicesUsed/$devicesMax',
+                      style: TextStyle(color: Colors.blue, fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+              ),
               Spacer(),
               IconButton(
                 icon: Icon(Icons.copy, size: 18),
@@ -279,7 +299,8 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
                 status == 'active' ? Icons.check_circle : Icons.login,
                 size: 16,
               ),
-              label: Text(status == 'active' ? 'Đang kích hoạt' : 'Kích hoạt trên thiết bị này'),
+              // Always show "Kích hoạt máy này" - never show "Đang kích hoạt" on this screen
+              label: Text('Kích hoạt máy này'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: status == 'active' ? Colors.grey : Colors.blue,
                 foregroundColor: Colors.white,

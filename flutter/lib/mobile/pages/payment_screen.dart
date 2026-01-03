@@ -10,6 +10,15 @@ import 'cart_page.dart';
 import 'license_wrapper.dart' as license_wrapper;
 
 class PaymentScreen extends StatefulWidget {
+  final String? preSelectedTier;
+  final String? renewLicenseKey;
+  
+  const PaymentScreen({
+    Key? key,
+    this.preSelectedTier,
+    this.renewLicenseKey,
+  }) : super(key: key);
+  
   @override
   _PaymentScreenState createState() => _PaymentScreenState();
 }
@@ -19,10 +28,12 @@ class _PaymentScreenState extends State<PaymentScreen> {
   String? _error;
   Map<String, List<Product>> _productsByTier = {};
   Map<String, String> _tierNames = {}; // tier key -> tier display name
+  String? _selectedTier;
 
   @override
   void initState() {
     super.initState();
+    _selectedTier = widget.preSelectedTier;
     _loadProducts();
   }
 
