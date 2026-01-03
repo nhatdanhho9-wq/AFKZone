@@ -1,11 +1,12 @@
 ﻿/**
- * Notifications Page - Full CRUD
+ * Notifications Page - Full CRUD with status filter
  */
 
 import { getNotifications, createNotification, deleteNotification } from '../api.js';
 import { showToast, showSkeleton, formatDate, escapeHtml, showConfirm } from '../ui.js';
 
 let notificationsData = [];
+let currentFilter = 'all';
 
 export async function loadNotificationsPage(container) {
     container.innerHTML = `
@@ -16,7 +17,14 @@ export async function loadNotificationsPage(container) {
         <div class="table-container">
             <div class="table-header">
                 <h3 class="table-title">All Notifications</h3>
-                <button id="create-notif-btn" style="padding:0.5rem 1rem;background:var(--accent-2);color:white;border-radius:4px;font-weight:500">+ Create Notification</button>
+                <div style="display:flex;gap:0.5rem;align-items:center;">
+                    <select id="notif-filter" style="padding:0.5rem;border:1px solid var(--border);border-radius:4px;font-size:14px;">
+                        <option value="all">All</option>
+                        <option value="active">Active only</option>
+                        <option value="expired">Expired only</option>
+                    </select>
+                    <button id="create-notif-btn" style="padding:0.5rem 1rem;background:var(--accent-2);color:white;border-radius:4px;font-weight:500">+ Create Notification</button>
+                </div>
             </div>
             <div id="notifications-table"></div>
         </div>
@@ -25,6 +33,10 @@ export async function loadNotificationsPage(container) {
 
     loadNotifications();
     document.getElementById('create-notif-btn').addEventListener('click', () => showNotifModal());
+    document.getElementById('notif-filter').addEventListener('change', (e) => {
+        currentFilter = e.target.value;
+        renderTable(notificationsData);
+    });
 }
 
 async function loadNotifications() {
@@ -42,26 +54,44 @@ async function loadNotifications() {
 
 function renderTable(notifications) {
     const table = document.getElementById('notifications-table');
-    if (!notifications || notifications.length === 0) {
+
+    // Filter notifications based on current filter
+    const now = new Date();
+    let filtered = notifications;
+    if (currentFilter === 'active') {
+        filtered = notifications.filter(n => !n.expires_at || new Date(n.expires_at) > now);
+    } else if (currentFilter === 'expired') {
+        filtered = notifications.filter(n => n.expires_at && new Date(n.expires_at) <= now);
+    }
+
+    if (!filtered || filtered.length === 0) {
         table.innerHTML = '<div style="padding:2rem;text-align:center;color:#6D655B">No notifications</div>';
         return;
     }
 
-    const rows = notifications.map(n => `
+    const rows = filtered.map(n => {
+        const isExpired = n.expires_at && new Date(n.expires_at) <= now;
+        const statusBadge = isExpired
+            ? '<span class="badge badge-warning">Expired</span>'
+            : '<span class="badge badge-success">Active</span>';
+
+        return `
         <tr>
-            <td><strong>${escapeHtml(n.title||'N/A')}</strong></td>
-            <td>${escapeHtml(n.message||'')}</td>
-            <td><span class="badge badge-${n.type||'info'}">${escapeHtml(n.type||'info')}</span></td>
-            <td>${escapeHtml(n.target||'all')}</td>
+            <td><strong>${escapeHtml(n.title || 'N/A')}</strong></td>
+            <td>${escapeHtml(n.message || '')}</td>
+            <td><span class="badge badge-${n.type || 'info'}">${escapeHtml(n.type || 'info')}</span></td>
+            <td>${escapeHtml(n.target || 'all')}</td>
+            <td>${statusBadge}</td>
             <td>${escapeHtml(formatDate(n.expires_at))}</td>
             <td>${escapeHtml(formatDate(n.created_at))}</td>
             <td>
                 <button onclick="window.deleteNotifBtn(${n.id})" style="padding:0.25rem 0.75rem;background:var(--danger);color:white;border-radius:4px;font-size:12px">Delete</button>
             </td>
         </tr>
-    `).join('');
+        `;
+    }).join('');
 
-    table.innerHTML = `<table><thead><tr><th>Title</th><th>Message</th><th>Type</th><th>Target</th><th>Expires</th><th>Created</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table>`;
+    table.innerHTML = `<table><thead><tr><th>Title</th><th>Message</th><th>Type</th><th>Target</th><th>Status</th><th>Expires</th><th>Created</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 function showNotifModal() {
@@ -107,7 +137,7 @@ function showNotifModal() {
     });
 }
 
-window.deleteNotifBtn = function(id) {
+window.deleteNotifBtn = function (id) {
     showConfirm('Delete Notification', 'Are you sure?', async () => {
         try {
             await deleteNotification(id);

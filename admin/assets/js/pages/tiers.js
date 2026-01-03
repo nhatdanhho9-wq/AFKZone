@@ -47,21 +47,28 @@ function renderTable(tiers) {
         return;
     }
 
-    const rows = tiers.map(t => `
+    const rows = tiers.map(t => {
+        const colorBadge = t.color
+            ? `<span style="display:inline-block;width:24px;height:24px;border-radius:4px;background:${escapeHtml(t.color)};border:1px solid rgba(0,0,0,0.1);"></span>`
+            : '<span style="color:#999;font-size:12px;">No color</span>';
+
+        return `
         <tr>
-            <td><code class="mono">${escapeHtml(t.tier_key||'N/A')}</code></td>
-            <td><strong>${escapeHtml(t.tier_name||'N/A')}</strong></td>
-            <td>${escapeHtml(t.description||'')}</td>
-            <td>${escapeHtml(String(t.display_order||0))}</td>
-            <td><span class="badge ${t.is_active?'badge-success':'badge-warning'}">${t.is_active?'Active':'Inactive'}</span></td>
+            <td><code class="mono">${escapeHtml(t.tier_key || 'N/A')}</code></td>
+            <td><strong>${escapeHtml(t.tier_name || 'N/A')}</strong></td>
+            <td>${colorBadge}</td>
+            <td>${escapeHtml(t.description || '')}</td>
+            <td>${escapeHtml(String(t.display_order || 0))}</td>
+            <td><span class="badge ${t.is_active ? 'badge-success' : 'badge-warning'}">${t.is_active ? 'Active' : 'Inactive'}</span></td>
             <td>
                 <button onclick="window.editTier(${t.id})" style="padding:0.25rem 0.5rem;background:var(--accent-2);color:white;border-radius:4px;font-size:12px;margin-right:4px">Edit</button>
                 <button onclick="window.deleteTierBtn(${t.id})" style="padding:0.25rem 0.5rem;background:var(--danger);color:white;border-radius:4px;font-size:12px">Delete</button>
             </td>
         </tr>
-    `).join('');
+        `;
+    }).join('');
 
-    table.innerHTML = `<table><thead><tr><th>Key</th><th>Name</th><th>Description</th><th>Order</th><th>Status</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table>`;
+    table.innerHTML = `<table><thead><tr><th>Key</th><th>Name</th><th>Color</th><th>Description</th><th>Order</th><th>Status</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 function showTierModal(tier = null) {
@@ -71,13 +78,20 @@ function showTierModal(tier = null) {
     modal.innerHTML = `
         <div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10000">
             <div style="background:white;padding:2rem;border-radius:8px;max-width:500px;width:90%">
-                <h3 style="margin-bottom:1rem">${isEdit?'Edit':'Create'} Tier</h3>
+                <h3 style="margin-bottom:1rem">${isEdit ? 'Edit' : 'Create'} Tier</h3>
                 <form id="tier-form">
-                    <div style="margin-bottom:1rem"><label>Tier Key</label><input name="tier_key" value="${escapeHtml(tier?.tier_key||'')}" required style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:4px"></div>
-                    <div style="margin-bottom:1rem"><label>Tier Name</label><input name="tier_name" value="${escapeHtml(tier?.tier_name||'')}" required style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:4px"></div>
-                    <div style="margin-bottom:1rem"><label>Description</label><textarea name="description" style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:4px;min-height:80px">${escapeHtml(tier?.description||'')}</textarea></div>
-                    <div style="margin-bottom:1rem"><label>Display Order</label><input name="display_order" type="number" value="${tier?.display_order||0}" required style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:4px"></div>
-                    <div style="margin-bottom:1rem"><label><input type="checkbox" name="is_active" ${tier?.is_active?'checked':''} style="margin-right:0.5rem">Active</label></div>
+                    <div style="margin-bottom:1rem"><label>Tier Key</label><input name="tier_key" value="${escapeHtml(tier?.tier_key || '')}" required style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:4px"></div>
+                    <div style="margin-bottom:1rem"><label>Tier Name</label><input name="tier_name" value="${escapeHtml(tier?.tier_name || '')}" required style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:4px"></div>
+                    <div style="margin-bottom:1rem">
+                        <label>Color</label>
+                        <div style="display:flex;gap:0.5rem;align-items:center;">
+                            <input type="color" name="color" value="${escapeHtml(tier?.color || '#3B82F6')}" style="width:50px;height:38px;padding:2px;border:1px solid var(--border);border-radius:4px;cursor:pointer;">
+                            <input type="text" name="color_hex" value="${escapeHtml(tier?.color || '#3B82F6')}" style="flex:1;padding:0.5rem;border:1px solid var(--border);border-radius:4px;font-family:monospace;" placeholder="#3B82F6">
+                        </div>
+                    </div>
+                    <div style="margin-bottom:1rem"><label>Description</label><textarea name="description" style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:4px;min-height:80px">${escapeHtml(tier?.description || '')}</textarea></div>
+                    <div style="margin-bottom:1rem"><label>Display Order</label><input name="display_order" type="number" value="${tier?.display_order || 0}" required style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:4px"></div>
+                    <div style="margin-bottom:1rem"><label><input type="checkbox" name="is_active" ${tier?.is_active ? 'checked' : ''} style="margin-right:0.5rem">Active</label></div>
                     <div style="display:flex;gap:0.5rem;justify-content:flex-end">
                         <button type="button" id="cancel-tier-btn" style="padding:0.5rem 1rem;background:#E6DED3;border-radius:4px">Cancel</button>
                         <button type="submit" style="padding:0.5rem 1rem;background:var(--accent-2);color:white;border-radius:4px">Save</button>
@@ -88,6 +102,16 @@ function showTierModal(tier = null) {
     `;
     modal.style.display = 'block';
 
+    // Sync color picker with text input
+    const colorPicker = modal.querySelector('input[name="color"]');
+    const colorHex = modal.querySelector('input[name="color_hex"]');
+    colorPicker.addEventListener('input', () => { colorHex.value = colorPicker.value; });
+    colorHex.addEventListener('input', () => {
+        if (/^#[0-9A-Fa-f]{6}$/.test(colorHex.value)) {
+            colorPicker.value = colorHex.value;
+        }
+    });
+
     document.getElementById('cancel-tier-btn').addEventListener('click', () => modal.style.display = 'none');
     document.getElementById('tier-form').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -95,6 +119,7 @@ function showTierModal(tier = null) {
         const data = {
             tier_key: formData.get('tier_key'),
             tier_name: formData.get('tier_name'),
+            color: formData.get('color_hex') || formData.get('color'),
             description: formData.get('description'),
             display_order: parseInt(formData.get('display_order')),
             is_active: formData.get('is_active') === 'on'
@@ -116,12 +141,12 @@ function showTierModal(tier = null) {
     });
 }
 
-window.editTier = function(id) {
+window.editTier = function (id) {
     const tier = tiersData.find(t => t.id === id);
     if (tier) showTierModal(tier);
 };
 
-window.deleteTierBtn = function(id) {
+window.deleteTierBtn = function (id) {
     showConfirm('Delete Tier', 'Are you sure?', async () => {
         try {
             await deleteTier(id);

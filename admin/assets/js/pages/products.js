@@ -24,8 +24,9 @@ export async function loadProductsPage(container) {
         <div id="product-modal" style="display:none"></div>
     `;
 
+    // Load tiers first, then products (fixes sorting issue)
+    await loadTiersData();
     loadProducts();
-    loadTiersData();
     document.getElementById('create-product-btn').addEventListener('click', () => showProductModal());
 }
 
@@ -72,15 +73,15 @@ function renderTable(products) {
 
     const rows = products.map(p => `
         <tr>
-            <td><strong>${escapeHtml(p.name||'N/A')}</strong></td>
-            <td>${escapeHtml(p.tier||'N/A')}</td>
-            <td>${formatNumber(p.price||0)} VND</td>
-            <td>${escapeHtml(String(p.duration_days||0))} days</td>
-            <td>${escapeHtml(String(p.max_devices||0))}</td>
-            <td><span class="badge ${p.is_active?'badge-success':'badge-warning'}">${p.is_active?'Active':'Disabled'}</span></td>
+            <td><strong>${escapeHtml(p.name || 'N/A')}</strong></td>
+            <td>${escapeHtml(p.tier || 'N/A')}</td>
+            <td>${formatNumber(p.price || 0)} VND</td>
+            <td>${escapeHtml(String(p.duration_days || 0))} days</td>
+            <td>${escapeHtml(String(p.max_devices || 0))}</td>
+            <td><span class="badge ${p.is_active ? 'badge-success' : 'badge-warning'}">${p.is_active ? 'Active' : 'Disabled'}</span></td>
             <td>
                 <button onclick="window.editProduct(${p.id})" style="padding:0.25rem 0.5rem;background:var(--accent-2);color:white;border-radius:4px;font-size:12px;margin-right:4px">Edit</button>
-                <button onclick="window.toggleProduct(${p.id},${p.is_active})" style="padding:0.25rem 0.5rem;background:var(--warn);color:white;border-radius:4px;font-size:12px;margin-right:4px">${p.is_active?'Disable':'Enable'}</button>
+                <button onclick="window.toggleProduct(${p.id},${p.is_active})" style="padding:0.25rem 0.5rem;background:var(--warn);color:white;border-radius:4px;font-size:12px;margin-right:4px">${p.is_active ? 'Disable' : 'Enable'}</button>
                 <button onclick="window.deleteProductBtn(${p.id})" style="padding:0.25rem 0.5rem;background:var(--danger);color:white;border-radius:4px;font-size:12px">Delete</button>
             </td>
         </tr>
@@ -96,18 +97,18 @@ function showProductModal(product = null) {
     modal.innerHTML = `
         <div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10000">
             <div style="background:white;padding:2rem;border-radius:8px;max-width:500px;width:90%">
-                <h3 style="margin-bottom:1rem">${isEdit?'Edit':'Create'} Product</h3>
+                <h3 style="margin-bottom:1rem">${isEdit ? 'Edit' : 'Create'} Product</h3>
                 <form id="product-form">
-                    <div style="margin-bottom:1rem"><label>Name</label><input name="name" value="${escapeHtml(product?.name||'')}" required style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:4px"></div>
+                    <div style="margin-bottom:1rem"><label>Name</label><input name="name" value="${escapeHtml(product?.name || '')}" required style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:4px"></div>
                     <div style="margin-bottom:1rem">
                         <label>Tier</label>
                         <select name="tier" required style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:4px">
                             ${tiersData.map(t => `<option value="${t.tier_key}" ${product?.tier === t.tier_key ? 'selected' : ''}>${escapeHtml(t.tier_name)}</option>`).join('')}
                         </select>
                     </div>
-                    <div style="margin-bottom:1rem"><label>Price (VND)</label><input name="price" type="number" value="${product?.price||0}" required style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:4px"></div>
-                    <div style="margin-bottom:1rem"><label>Duration (days)</label><input name="duration_days" type="number" value="${product?.duration_days||0}" required style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:4px"></div>
-                    <div style="margin-bottom:1rem"><label>Max Devices</label><input name="max_devices" type="number" value="${product?.max_devices||1}" required style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:4px"></div>
+                    <div style="margin-bottom:1rem"><label>Price (VND)</label><input name="price" type="number" value="${product?.price || 0}" required style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:4px"></div>
+                    <div style="margin-bottom:1rem"><label>Duration (days)</label><input name="duration_days" type="number" value="${product?.duration_days || 0}" required style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:4px"></div>
+                    <div style="margin-bottom:1rem"><label>Max Devices</label><input name="max_devices" type="number" value="${product?.max_devices || 1}" required style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:4px"></div>
                     <div style="display:flex;gap:0.5rem;justify-content:flex-end">
                         <button type="button" id="cancel-btn" style="padding:0.5rem 1rem;background:#E6DED3;border-radius:4px">Cancel</button>
                         <button type="submit" style="padding:0.5rem 1rem;background:var(--accent-2);color:white;border-radius:4px">Save</button>
@@ -146,12 +147,12 @@ function showProductModal(product = null) {
     });
 }
 
-window.editProduct = function(id) {
+window.editProduct = function (id) {
     const product = productsData.find(p => p.id === id);
     if (product) showProductModal(product);
 };
 
-window.toggleProduct = async function(id, isActive) {
+window.toggleProduct = async function (id, isActive) {
     try {
         if (isActive) {
             await disableProduct(id);
@@ -166,7 +167,7 @@ window.toggleProduct = async function(id, isActive) {
     }
 };
 
-window.deleteProductBtn = function(id) {
+window.deleteProductBtn = function (id) {
     showConfirm('Delete Product', 'Are you sure?', async () => {
         try {
             await deleteProduct(id);

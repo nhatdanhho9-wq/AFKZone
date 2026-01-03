@@ -153,6 +153,16 @@ export async function deleteLicense(licenseKey) {
 }
 
 /**
+ * Generate a new license manually
+ */
+export async function generateLicense(data) {
+    return await apiFetch('/admin/licenses/generate', {
+        method: 'POST',
+        body: data
+    });
+}
+
+/**
  * Get all orders
  */
 export async function getAllOrders() {
@@ -263,6 +273,15 @@ export async function deleteTier(id) {
  */
 export async function getDevices() {
     return await apiFetch('/admin/devices/detailed');
+}
+
+/**
+ * Clear device slot (remove device from license)
+ */
+export async function clearDeviceSlot(deviceId) {
+    return await apiFetch(`/admin/devices/${deviceId}`, {
+        method: 'DELETE'
+    });
 }
 
 /**
