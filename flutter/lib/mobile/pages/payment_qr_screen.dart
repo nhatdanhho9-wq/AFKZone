@@ -7,6 +7,7 @@ import 'package:flutter_hbb/services/payment_service.dart';
 import 'package:flutter_hbb/common/license_service.dart';
 import 'package:flutter_hbb/common/payment_websocket_service.dart';
 import 'package:flutter_hbb/mobile/pages/license_page.dart';
+import 'package:flutter_hbb/mobile/pages/license_info_page.dart';
 
 class PaymentQRScreen extends StatefulWidget {
   final String tier;
@@ -341,12 +342,21 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
             icon: Icon(Icons.check_circle, size: 20),
             label: Text('Hoàn tất & Sử dụng'),
             onPressed: () {
-              // Navigate to License Page to show active license immediately
-              Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute(builder: (context) => LicensePage()),
-                (route) => route.isFirst,
-              );
-              
+              // Navigate based on activation success
+              if (activationSuccessful) {
+                // Navigate to License Info Page to show active license details
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (context) => LicenseInfoPage()),
+                  (route) => route.isFirst,
+                );
+              } else {
+                // Navigate to License Page for manual activation
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (context) => LicensePage()),
+                  (route) => route.isFirst,
+                );
+              }
+
               // Show success snackbar
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
@@ -354,10 +364,14 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
                     children: [
                       Icon(Icons.check_circle, color: Colors.white),
                       SizedBox(width: 12),
-                      Expanded(child: Text('License đã được kích hoạt! Bạn có thể sử dụng app ngay.')),
+                      Expanded(child: Text(
+                        activationSuccessful
+                          ? 'License đã được kích hoạt! Bạn có thể sử dụng app ngay.'
+                          : 'Vui lòng kích hoạt license trên thiết bị này.'
+                      )),
                     ],
                   ),
-                  backgroundColor: Colors.green,
+                  backgroundColor: activationSuccessful ? Colors.green : Colors.orange,
                   duration: Duration(seconds: 4),
                 ),
               );

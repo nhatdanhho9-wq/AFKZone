@@ -269,16 +269,19 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: () {
+              onPressed: status == 'active' ? null : () {
                 _licenseKeyController.text = licenseKey;
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(content: Text('Đã điền license key, bấm KÍCH HOẠT để sử dụng')),
                 );
               },
-              icon: Icon(Icons.login, size: 16),
-              label: Text('Kích hoạt trên thiết bị này'),
+              icon: Icon(
+                status == 'active' ? Icons.check_circle : Icons.login,
+                size: 16,
+              ),
+              label: Text(status == 'active' ? 'Đang kích hoạt' : 'Kích hoạt trên thiết bị này'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue,
+                backgroundColor: status == 'active' ? Colors.grey : Colors.blue,
                 foregroundColor: Colors.white,
                 padding: EdgeInsets.symmetric(vertical: 8),
               ),
