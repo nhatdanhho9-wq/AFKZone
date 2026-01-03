@@ -2500,14 +2500,15 @@ def clear_all_trial_devices(token: dict = Depends(verify_token), db: Session = D
 @app.get("/admin/tiers")
 def get_tiers(token: dict = Depends(verify_token), db: Session = Depends(get_db)):
     """Admin: Get all tiers"""
-    result = db.execute(text("SELECT * FROM tiers ORDER BY display_order")).fetchall()
+    result = db.execute(text("SELECT id, tier_key, tier_name, description, is_active, display_order, color_hex FROM tiers ORDER BY display_order")).fetchall()
     return [{
         "id": r[0],
         "tier_key": r[1],
         "tier_name": r[2],
         "description": r[3],
         "is_active": r[4],
-        "display_order": r[5]
+        "display_order": r[5],
+        "color_hex": r[6] if len(r) > 6 else "#3B82F6"
     } for r in result]
 
 @app.get("/tiers")
@@ -2522,15 +2523,16 @@ class TierCreate(BaseModel):
     description: Optional[str] = None
     is_active: bool = True
     display_order: int = 0
+    color_hex: Optional[str] = "#3B82F6"
 
 @app.post("/admin/tiers")
 def create_tier(tier: TierCreate, token: dict = Depends(verify_token), db: Session = Depends(get_db)):
     """Admin: Create new tier"""
     try:
         db.execute(text("""
-            INSERT INTO tiers (tier_key, tier_name, description, is_active, display_order)
-            VALUES (:key, :name, :desc, :active, :order)
-        """), {"key": tier.tier_key, "name": tier.tier_name, "desc": tier.description, "active": tier.is_active, "order": tier.display_order})
+            INSERT INTO tiers (tier_key, tier_name, description, is_active, display_order, color_hex)
+            VALUES (:key, :name, :desc, :active, :order, :color)
+        """), {"key": tier.tier_key, "name": tier.tier_name, "desc": tier.description, "active": tier.is_active, "order": tier.display_order, "color": tier.color_hex})
         db.commit()
         return {"success": True}
     except Exception as e:
@@ -2540,9 +2542,9 @@ def create_tier(tier: TierCreate, token: dict = Depends(verify_token), db: Sessi
 def update_tier(tier_id: int, tier: TierCreate, token: dict = Depends(verify_token), db: Session = Depends(get_db)):
     """Admin: Update tier"""
     db.execute(text("""
-        UPDATE tiers SET tier_key=:key, tier_name=:name, description=:desc, is_active=:active, display_order=:order
+        UPDATE tiers SET tier_key=:key, tier_name=:name, description=:desc, is_active=:active, display_order=:order, color_hex=:color
         WHERE id=:id
-    """), {"id": tier_id, "key": tier.tier_key, "name": tier.tier_name, "desc": tier.description, "active": tier.is_active, "order": tier.display_order})
+    """), {"id": tier_id, "key": tier.tier_key, "name": tier.tier_name, "desc": tier.description, "active": tier.is_active, "order": tier.display_order, "color": tier.color_hex})
     db.commit()
     return {"success": True}
 
@@ -2552,6 +2554,40 @@ def delete_tier(tier_id: int, token: dict = Depends(verify_token), db: Session =
     db.execute(text("DELETE FROM tiers WHERE id=:id"), {"id": tier_id})
     db.commit()
     return {"success": True}
+
+# ==================== ADMIN SETTINGS ====================
+
+@app.get("/admin/settings")
+def get_admin_settings(token: dict = Depends(verify_token)):
+    """Get admin settings/config"""
+    return {
+        "app_version": "2.2.53",
+        "api_version": "1.0",
+        "server_config": SERVER_CONFIG,
+        "features": {
+            "bank_transfer": True,
+            "trial_enabled": True,
+            "multi_device": True
+        }
+    }
+
+@app.get("/admin/analytics/health")
+def get_system_health(token: dict = Depends(verify_token), db: Session = Depends(get_db)):
+    """System health metrics - placeholder structure"""
+    try:
+        # Test DB connection
+        db.execute(text("SELECT 1")).fetchone()
+        db_status = "connected"
+    except Exception:
+        db_status = "error"
+    
+    return {
+        "status": "healthy" if db_status == "connected" else "degraded",
+        "uptime_seconds": "placeholder",
+        "database": {"status": db_status, "latency_ms": "placeholder"},
+        "api": {"requests_per_minute": "placeholder", "error_rate": "placeholder"},
+        "note": "Real metrics coming in future release"
+    }
 
 
 # ==================== WEBSOCKET PAYMENT NOTIFICATION ====================
