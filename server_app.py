@@ -772,6 +772,15 @@ async def get_user_activation_history(device_id: str, db: Session = Depends(get_
         ]
     }
 
+# Alias endpoint for UI compatibility
+@app.get("/api/devices/activation-history")
+async def get_devices_activation_history(device_id: str, db: Session = Depends(get_db)):
+    """
+    v2.2.56: Alias for /user/activation-history (UI compatibility).
+    Same logic, different path.
+    """
+    return await get_user_activation_history(device_id, db)
+
 @app.delete("/api/license/device/{device_id}/clear")
 async def clear_device_slot(device_id: str, license_key: str, db: Session = Depends(get_db)):
     """
