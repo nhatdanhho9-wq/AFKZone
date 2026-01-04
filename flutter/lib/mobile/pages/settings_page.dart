@@ -493,6 +493,90 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
     );
   }
 
+  // Device Management - Assign License
+  void _showAssignLicenseDialog() {
+    final deviceIdController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [Icon(Icons.devices, color: Colors.blue), SizedBox(width: 8), Text('Gán License')],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Nhập Device ID của thiết bị muốn gán:', style: TextStyle(fontWeight: FontWeight.w500)),
+            SizedBox(height: 12),
+            TextField(
+              controller: deviceIdController,
+              decoration: InputDecoration(
+                labelText: 'Device ID',
+                hintText: 'abc123def456...',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.perm_device_information),
+              ),
+            ),
+            SizedBox(height: 12),
+            Container(
+              padding: EdgeInsets.all(10),
+              decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8)),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, size: 16, color: Colors.blue),
+                  SizedBox(width: 8),
+                  Expanded(child: Text('Device ID lấy từ Settings → Thiết bị này', style: TextStyle(fontSize: 12, color: Colors.blue.shade800))),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: Text('Hủy')),
+          ElevatedButton(
+            onPressed: () async {
+              final targetDeviceId = deviceIdController.text.trim();
+              if (targetDeviceId.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Vui lòng nhập Device ID')));
+                return;
+              }
+              Navigator.pop(context);
+              _assignLicenseToDevice(targetDeviceId);
+            },
+            child: Text('Gán License'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _assignLicenseToDevice(String targetDeviceId) async {
+    try {
+      final response = await http.post(
+        Uri.parse('https://api.afkzone.cloud/api/license/assign'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'license_key': _licenseKey, 'target_device_id': targetDeviceId}),
+      ).timeout(Duration(seconds: 10));
+      
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('✅ Đã gán license thành công!'), backgroundColor: Colors.green));
+      } else {
+        final data = json.decode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ ${data['detail'] ?? 'Lỗi gán license'}'), backgroundColor: Colors.red));
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Lỗi kết nối'), backgroundColor: Colors.red));
+    }
+  }
+
+  // Device Management - View Device List  
+  void _showDeviceListDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => _DeviceListDialogContent(licenseKey: _licenseKey ?? ''),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     Provider.of<FfiModel>(context);
@@ -1020,6 +1104,25 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             ),
           ],
         ),
+        // License Manager Section (Feature D - Device Management)
+        if (_licenseKey != null)
+          SettingsSection(
+            title: Text('Quản lý thiết bị'),
+            tiles: [
+              SettingsTile(
+                title: Text('Gán license cho thiết bị khác'),
+                description: Text('Nhập device_id thủ công'),
+                leading: Icon(Icons.devices, color: Colors.blue),
+                onPressed: (context) => _showAssignLicenseDialog(),
+              ),
+              SettingsTile(
+                title: Text('Xem thiết bị đã kích hoạt'),
+                description: Text('Danh sách device + gỡ device'),
+                leading: Icon(Icons.list_alt, color: Colors.green),
+                onPressed: (context) => _showDeviceListDialog(),
+              ),
+            ],
+          ),
         SettingsSection(title: Text(translate("Settings")), tiles: [
           // ID/Relay Server settings - hidden by default, show only in developer mode
           // Tap Version 7 times to enable developer mode
@@ -1772,6 +1875,108 @@ class _RegionSwitchDialogContentState extends State<_RegionSwitchDialogContent> 
           onPressed: () => Navigator.pop(context),
           child: Text('Đóng'),
         ),
+      ],
+    );
+  }
+}
+
+// Device List Dialog - shows activated devices with kick option
+class _DeviceListDialogContent extends StatefulWidget {
+  final String licenseKey;
+  const _DeviceListDialogContent({Key? key, required this.licenseKey}) : super(key: key);
+  @override
+  _DeviceListDialogContentState createState() => _DeviceListDialogContentState();
+}
+
+class _DeviceListDialogContentState extends State<_DeviceListDialogContent> {
+  List<Map<String, dynamic>> _devices = [];
+  bool _isLoading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDevices();
+  }
+
+  Future<void> _loadDevices() async {
+    setState(() => _isLoading = true);
+    try {
+      final response = await http.get(
+        Uri.parse('https://api.afkzone.cloud/api/license/${widget.licenseKey}/slots'),
+        headers: {'Cache-Control': 'no-cache'},
+      ).timeout(Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        final data = json.decode(utf8.decode(response.bodyBytes));
+        setState(() {
+          _devices = (data['devices'] ?? data['slots'] ?? []).map<Map<String, dynamic>>((d) => Map<String, dynamic>.from(d)).toList();
+          _isLoading = false;
+        });
+      } else {
+        setState(() { _error = 'Không thể tải danh sách'; _isLoading = false; });
+      }
+    } catch (e) {
+      setState(() { _error = 'Lỗi kết nối'; _isLoading = false; });
+    }
+  }
+
+  Future<void> _kickDevice(String deviceId) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Xác nhận'),
+        content: Text('Gỡ thiết bị này khỏi license?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text('Hủy')),
+          ElevatedButton(onPressed: () => Navigator.pop(context, true), style: ElevatedButton.styleFrom(backgroundColor: Colors.red), child: Text('Gỡ')),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    try {
+      final response = await http.post(
+        Uri.parse('https://api.afkzone.cloud/api/license/kick'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'license_key': widget.licenseKey, 'device_id': deviceId}),
+      ).timeout(Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('✅ Đã gỡ'), backgroundColor: Colors.green));
+        _loadDevices();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Lỗi'), backgroundColor: Colors.red));
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Lỗi kết nối'), backgroundColor: Colors.red));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Row(children: [Icon(Icons.list_alt, color: Colors.green), SizedBox(width: 8), Text('Thiết bị đã kích hoạt')]),
+      content: Container(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_isLoading) Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator())
+            else if (_error != null) Text(_error!, style: TextStyle(color: Colors.red))
+            else if (_devices.isEmpty) Column(children: [Icon(Icons.devices_other, size: 48, color: Colors.grey), SizedBox(height: 12), Text('Chưa có thiết bị')])
+            else ..._devices.map((d) => Card(
+              child: ListTile(
+                title: Text(d['alias'] ?? 'Thiết bị'),
+                subtitle: Text('ID: ${(d['device_id'] ?? '').toString().length > 12 ? (d['device_id'] ?? '').toString().substring(0, 12) + '...' : d['device_id'] ?? ''}', style: TextStyle(fontSize: 11, fontFamily: 'monospace')),
+                leading: Icon(Icons.phone_android, color: Colors.blue),
+                trailing: IconButton(icon: Icon(Icons.delete_outline, color: Colors.red), onPressed: () => _kickDevice(d['device_id'] ?? ''), tooltip: 'Gỡ'),
+                dense: true,
+              ),
+            )).toList(),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: Text('Đóng')),
+        ElevatedButton.icon(onPressed: _loadDevices, icon: Icon(Icons.refresh, size: 16), label: Text('Làm mới')),
       ],
     );
   }

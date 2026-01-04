@@ -7,7 +7,7 @@ import 'package:flutter_hbb/services/payment_service.dart';
 import 'package:flutter_hbb/common/license_service.dart';
 import 'package:flutter_hbb/common/payment_websocket_service.dart';
 import 'package:flutter_hbb/mobile/pages/license_page.dart';
-import 'package:flutter_hbb/mobile/pages/license_info_page.dart';
+// LicenseInfoPage removed - using built-in Settings instead
 
 class PaymentQRScreen extends StatefulWidget {
   final String tier;
@@ -312,7 +312,7 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
                       ],
                     ),
                     SizedBox(height: 8),
-                    Text('✓ License đã được tự động kích hoạt trên thiết bị này', style: TextStyle(fontSize: 13)),
+                    Text('✓ Vui lòng copy license key để lưu lại', style: TextStyle(fontSize: 13)),
                     SizedBox(height: 4),
                     Text('✓ Gói ${widget.tier.toUpperCase()}: ${widget.durationDays} ngày', style: TextStyle(fontSize: 13)),
                     SizedBox(height: 4),
@@ -342,20 +342,11 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
             icon: Icon(Icons.check_circle, size: 20),
             label: Text('Hoàn tất & Sử dụng'),
             onPressed: () {
-              // Navigate based on activation success
-              if (activationSuccessful) {
-                // Navigate to License Info Page to show active license details
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (context) => LicenseInfoPage()),
-                  (route) => route.isFirst,
-                );
-              } else {
-                // Navigate to License Page for manual activation
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (context) => LicensePage()),
-                  (route) => route.isFirst,
-                );
-              }
+              // Always navigate to License Page (History) for activation
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (context) => LicensePage()),
+                (route) => route.isFirst,
+              );
 
               // Show success snackbar
               ScaffoldMessenger.of(context).showSnackBar(
@@ -366,7 +357,7 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
                       SizedBox(width: 12),
                       Expanded(child: Text(
                         activationSuccessful
-                          ? 'License đã được kích hoạt! Bạn có thể sử dụng app ngay.'
+                          ? 'License đã sẵn sàng! Vào Lịch sử để kích hoạt.'
                           : 'Vui lòng kích hoạt license trên thiết bị này.'
                       )),
                     ],
