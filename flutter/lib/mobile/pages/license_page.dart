@@ -285,26 +285,61 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
                 style: TextStyle(fontSize: 11, color: Colors.grey[600]),
               ),
             ),
-          SizedBox(height: 8),
-          SizedBox(
+          SizedBox(height: 12),
+          // PROMINENT CTA: "Kích hoạt máy này"
+          Container(
             width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: status == 'active' ? null : () {
-                _licenseKeyController.text = licenseKey;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Đã điền license key, bấm KÍCH HOẠT để sử dụng')),
-                );
-              },
-              icon: Icon(
-                status == 'active' ? Icons.check_circle : Icons.login,
-                size: 16,
-              ),
-              // Always show "Kích hoạt máy này" - never show "Đang kích hoạt" on this screen
-              label: Text('Kích hoạt máy này'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: status == 'active' ? Colors.grey : Colors.blue,
-                foregroundColor: Colors.white,
-                padding: EdgeInsets.symmetric(vertical: 8),
+            height: 48,
+            decoration: BoxDecoration(
+              gradient: status == 'active' 
+                ? null 
+                : LinearGradient(
+                    colors: [Color(0xFF4CAF50), Color(0xFF2E7D32)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+              color: status == 'active' ? Colors.grey[400] : null,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: status == 'active' ? [] : [
+                BoxShadow(
+                  color: Color(0xFF4CAF50).withOpacity(0.4),
+                  blurRadius: 8,
+                  offset: Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: status == 'active' ? null : () {
+                  _licenseKeyController.text = licenseKey;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Đã điền license key, bấm KÍCH HOẠT ở trên để sử dụng')),
+                  );
+                },
+                borderRadius: BorderRadius.circular(12),
+                child: Center(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        status == 'active' ? Icons.check_circle : Icons.rocket_launch,
+                        color: Colors.white,
+                        size: 22,
+                      ),
+                      SizedBox(width: 10),
+                      Text(
+                        status == 'active' ? 'Đã kích hoạt' : 'KÍCH HOẠT MÁY NÀY',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
@@ -800,17 +835,56 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
                         _buildLicenseHistoryItem(_activeLicense!, isHighlight: true),
                       ],
 
-                      // 2. Paid History (Server)
+                      // 2. Paid History (Collapsible - show 3 by default)
                       if (_paidHistory.isNotEmpty) ...[
                         SizedBox(height: 16),
                         Divider(),
                         SizedBox(height: 8),
-                        Text(
-                          'Lịch sử mua hàng:',
-                          style: TextStyle(fontWeight: FontWeight.bold),
+                        InkWell(
+                          onTap: () => setState(() => _showPurchaseHistory = !_showPurchaseHistory),
+                          child: Row(
+                            children: [
+                              Icon(Icons.shopping_cart, color: Colors.blue, size: 18),
+                              SizedBox(width: 8),
+                              Text(
+                                'Lịch sử mua hàng (${_paidHistory.length})',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                              ),
+                              Spacer(),
+                              Icon(_showPurchaseHistory ? Icons.expand_less : Icons.expand_more, color: Colors.grey),
+                            ],
+                          ),
                         ),
-                        SizedBox(height: 8),
-                        ..._paidHistory.map((license) => _buildLicenseHistoryItem(license)).toList(),
+                        if (_showPurchaseHistory) ...[
+                          SizedBox(height: 8),
+                          ...(_paidHistory.take(3).map((license) => _buildLicenseHistoryItem(license)).toList()),
+                          if (_paidHistory.length > 3)
+                            TextButton(
+                              onPressed: () {
+                                showModalBottomSheet(
+                                  context: context,
+                                  isScrollControlled: true,
+                                  builder: (context) => DraggableScrollableSheet(
+                                    initialChildSize: 0.7,
+                                    maxChildSize: 0.9,
+                                    minChildSize: 0.5,
+                                    builder: (context, scrollController) => Container(
+                                      padding: EdgeInsets.all(16),
+                                      child: ListView(
+                                        controller: scrollController,
+                                        children: [
+                                          Text('Tất cả đơn hàng (${_paidHistory.length})', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                                          SizedBox(height: 16),
+                                          ..._paidHistory.map((l) => _buildLicenseHistoryItem(l)).toList(),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: Text('Xem thêm ${_paidHistory.length - 3} đơn hàng...'),
+                            ),
+                        ],
                       ],
 
                       // 3. Trials (Collapsed)
