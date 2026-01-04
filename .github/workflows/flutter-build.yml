@@ -641,7 +641,7 @@ jobs:
           NASM_VERSION="2.16.03"
           NASM_SHA256="0d29bcd8a5fc617333f4549c7c1f93d1866a4a0915c40359e0a8585bb1a5aa75"
           NASM_FILE="nasm-${NASM_VERSION}-macosx.zip"
-          MIRROR_URL="https://github.com/AFK-Zone/nasm-mirror/releases/download/v${NASM_VERSION}/${NASM_FILE}"
+          MIRROR_URL="https://github.com/nhatdanhho9-wq/nasm-mirror/releases/download/v${NASM_VERSION}/${NASM_FILE}"
           OFFICIAL_URL="https://www.nasm.us/pub/nasm/releasebuilds/${NASM_VERSION}/macosx/${NASM_FILE}"
           
           # Try mirror first, fallback to official
