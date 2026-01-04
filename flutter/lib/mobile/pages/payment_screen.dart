@@ -367,7 +367,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
             }
           }
           
-          // Show success dialog
+          // v2.2.56: Updated success dialog - remove auto-activate message
           showDialog(
             context: context,
             barrierDismissible: false,
@@ -383,7 +383,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('🎉 Bạn đã được kích hoạt license 7 ngày miễn phí!', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text('🎉 License 7 ngày của bạn đã sẵn sàng!', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   SizedBox(height: 12),
                   Container(
                     padding: EdgeInsets.all(8),
@@ -396,17 +396,43 @@ class _PaymentScreenState extends State<PaymentScreen> {
                       style: TextStyle(fontFamily: 'monospace', fontSize: 12),
                     ),
                   ),
-                  SizedBox(height: 8),
-                  Text('License đã được tự động kích hoạt trên thiết bị này.', style: TextStyle(fontSize: 14)),
+                  SizedBox(height: 12),
+                  // v2.2.56: Instruction instead of "đã tự động kích hoạt"
+                  Container(
+                    padding: EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.blue[50],
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.blue[200]!),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.info_outline, color: Colors.blue, size: 20),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Bấm "Hoàn tất" để về màn Lịch sử và kích hoạt license.',
+                            style: TextStyle(fontSize: 13, color: Colors.blue[800]),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
               actions: [
-                ElevatedButton(
+                ElevatedButton.icon(
                   onPressed: () {
                     Navigator.pop(context); // Close dialog
-                    Navigator.pop(context); // Go back to previous screen
+                    Navigator.pop(context); // Go back to License/History screen
                   },
-                  child: Text('Hoàn tất'),
+                  icon: Icon(Icons.check),
+                  label: Text('Hoàn tất & Sử dụng'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Color(0xFF4CAF50),
+                    foregroundColor: Colors.white,
+                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  ),
                 ),
               ],
             ),

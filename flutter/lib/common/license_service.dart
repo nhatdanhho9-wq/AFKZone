@@ -333,4 +333,66 @@ class LicenseService {
       print('⚠️ Error logging connection (non-critical): $e');
     }
   }
+
+  // Get activation history for a device
+  static Future<List<Map<String, dynamic>>> getActivationHistory(String deviceId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$API_URL/device/$deviceId/activation-history'),
+        headers: {'Content-Type': 'application/json'},
+      ).timeout(Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['activations'] != null) {
+          return List<Map<String, dynamic>>.from(data['activations']);
+        }
+      }
+      return [];
+    } catch (e) {
+      print('Error getting activation history: $e');
+      return [];
+    }
+  }
+
+  // Clear device from license (kick device)
+  static Future<Map<String, dynamic>?> clearDeviceSlot(String licenseKey, String deviceId) async {
+    try {
+      final response = await http.delete(
+        Uri.parse('$API_URL/api/license/device/$deviceId?license_key=$licenseKey'),
+        headers: {'Content-Type': 'application/json'},
+      ).timeout(Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        final error = json.decode(response.body);
+        throw Exception(error['detail'] ?? 'Failed to clear device');
+      }
+    } catch (e) {
+      print('Error clearing device slot: $e');
+      rethrow;
+    }
+  }
+
+  // Get regions list
+  static Future<List<Map<String, dynamic>>> getRegions() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$API_URL/public/regions'),
+        headers: {'Content-Type': 'application/json'},
+      ).timeout(Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['regions'] != null) {
+          return List<Map<String, dynamic>>.from(data['regions']);
+        }
+      }
+      return [];
+    } catch (e) {
+      print('Error getting regions: $e');
+      return [];
+    }
+  }
 }

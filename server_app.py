@@ -718,7 +718,7 @@ async def get_user_purchase_history(device_id: str, db: Session = Depends(get_db
         if order[6]:  # license_key exists
             license_info = db.execute(text("""
                 SELECT max_devices,
-                       (SELECT COUNT(*) FROM license_devices WHERE license_key = :key) as used
+                       (SELECT COUNT(*) FROM license_devices WHERE license_key = :key AND is_active = TRUE) as used
                 FROM licenses WHERE license_key = :key
             """), {"key": order[6]}).fetchone()
             
@@ -730,7 +730,88 @@ async def get_user_purchase_history(device_id: str, db: Session = Depends(get_db
     
     return {"orders": result}
 
+@app.get("/device/{device_id}/activation-history")
+async def get_device_activation_history(device_id: str, db: Session = Depends(get_db)):
+    """
+    v2.2.56: Get activation history for a specific device.
+    Returns all licenses this device has been activated on.
+    """
+    activations = db.execute(text("""
+        SELECT 
+            ld.license_key,
+            l.tier,
+            l.expires_at,
+            ld.activated_at,
+            l.max_devices,
+            (SELECT COUNT(*) FROM license_devices WHERE license_key = l.license_key AND is_active = TRUE) as devices_used,
+            CASE 
+                WHEN l.is_revoked THEN 'revoked'
+                WHEN l.expires_at < NOW() THEN 'expired'
+                WHEN ld.is_active = FALSE THEN 'deactivated'
+                ELSE 'active'
+            END as status
+        FROM license_devices ld
+        JOIN licenses l ON ld.license_key = l.license_key
+        WHERE ld.device_id = :did
+        ORDER BY ld.activated_at DESC
+    """), {"did": device_id}).fetchall()
+    
+    return {
+        "device_id": device_id,
+        "activations": [
+            {
+                "license_key": a[0],
+                "tier": a[1],
+                "expires_at": to_iso(a[2]),
+                "activated_at": to_iso(a[3]),
+                "devices_max": a[4] if a[4] != -1 else -1,
+                "devices_used": a[5],
+                "status": a[6]
+            }
+            for a in activations
+        ]
+    }
 
+@app.delete("/api/license/device/{device_id}")
+async def clear_device_slot(device_id: str, license_key: str, db: Session = Depends(get_db)):
+    """
+    v2.2.56: Clear device slot - remove device from a license.
+    This allows the slot to be used by another device.
+    """
+    # Check if device is assigned to this license
+    existing = db.execute(text("""
+        SELECT id FROM license_devices 
+        WHERE license_key = :key AND device_id = :did
+    """), {"key": license_key, "did": device_id}).fetchone()
+    
+    if not existing:
+        raise HTTPException(status_code=404, detail="Device not found on this license")
+    
+    # Option 1: Hard delete
+    # db.execute(text("DELETE FROM license_devices WHERE license_key = :key AND device_id = :did"),
+    #            {"key": license_key, "did": device_id})
+    
+    # Option 2: Soft delete (mark as inactive) - preferred for audit trail
+    db.execute(text("""
+        UPDATE license_devices SET is_active = FALSE WHERE license_key = :key AND device_id = :did
+    """), {"key": license_key, "did": device_id})
+    
+    db.commit()
+    
+    # Get updated slot count
+    slot_info = db.execute(text("""
+        SELECT 
+            (SELECT COUNT(*) FROM license_devices WHERE license_key = :key AND is_active = TRUE) as used,
+            (SELECT max_devices FROM licenses WHERE license_key = :key) as max
+    """), {"key": license_key}).fetchone()
+    
+    return {
+        "success": True,
+        "message": f"Device {device_id[:20]}... removed from license",
+        "license_key": license_key,
+        "devices_used": slot_info[0] if slot_info else 0,
+        "devices_max": slot_info[1] if slot_info else 0
+    }
 
 # Bank Transfer Configuration
 BANK_CONFIG = {

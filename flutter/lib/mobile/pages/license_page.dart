@@ -32,6 +32,9 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
   Map<String, dynamic>? _activeLicense; // Local active license
   List<Map<String, dynamic>> _paidHistory = [];
   List<Map<String, dynamic>> _trialHistory = [];
+  List<Map<String, dynamic>> _activationHistory = []; // v2.2.56: Per-device activation history
+  bool _showPurchaseHistory = true; // Collapsible state
+  bool _showActivationHistory = false; // Collapsible state
   bool _showTrials = false;
   List<Map<String, dynamic>> _notifications = [];
   bool _notificationsLoading = true;
@@ -44,6 +47,7 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
     _loadProducts();
     _loadActiveLicense(); // Load local active state
     _loadPurchaseHistory();
+    _loadActivationHistory(); // v2.2.56: Load device activation history
     _loadNotifications();
     _checkDirtyFlag();  // Check on init too
     _checkDirtyFlag();  // Check on init too
@@ -136,6 +140,19 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
       }
     } catch (e) {
       print('Error loading purchase history: $e');
+    }
+  }
+
+  // v2.2.56: Load activation history for this device
+  Future<void> _loadActivationHistory() async {
+    try {
+      final deviceId = await _getDeviceId();
+      final history = await LicenseService.getActivationHistory(deviceId);
+      if (mounted) {
+        setState(() => _activationHistory = history);
+      }
+    } catch (e) {
+      print('Error loading activation history: $e');
     }
   }
 
@@ -286,25 +303,52 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
               ),
             ),
           SizedBox(height: 8),
+          // v2.2.56: CTA Button - directly activate, not just fill form
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: status == 'active' ? null : () {
-                _licenseKeyController.text = licenseKey;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Đã điền license key, bấm KÍCH HOẠT để sử dụng')),
-                );
+              onPressed: (status == 'active' || _isLoading) ? null : () async {
+                setState(() => _isLoading = true);
+                try {
+                  final deviceId = await _getDeviceId();
+                  final result = await LicenseService.activateLicense(licenseKey, deviceId);
+                  if (result != null && mounted) {
+                    result['license_key'] = licenseKey;
+                    if (widget.onLicenseActivated != null) {
+                      await widget.onLicenseActivated!(result);
+                    }
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('✅ Kích hoạt thành công!'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('❌ ${e.toString().replaceAll("Exception: ", "")}'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                } finally {
+                  if (mounted) setState(() => _isLoading = false);
+                }
               },
-              icon: Icon(
-                status == 'active' ? Icons.check_circle : Icons.login,
-                size: 16,
+              icon: _isLoading
+                  ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : Icon(status == 'active' ? Icons.check_circle : Icons.rocket_launch, size: 18),
+              label: Text(
+                status == 'active' ? 'Đã kích hoạt' : 'Kích hoạt máy này',
+                style: TextStyle(fontWeight: FontWeight.bold),
               ),
-              // Always show "Kích hoạt máy này" - never show "Đang kích hoạt" on this screen
-              label: Text('Kích hoạt máy này'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: status == 'active' ? Colors.grey : Colors.blue,
+                backgroundColor: status == 'active' ? Colors.grey : Color(0xFF4CAF50), // Green CTA
                 foregroundColor: Colors.white,
-                padding: EdgeInsets.symmetric(vertical: 8),
+                padding: EdgeInsets.symmetric(vertical: 12),
+                elevation: status == 'active' ? 0 : 4,
               ),
             ),
           ),
@@ -313,15 +357,18 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
     );
   }
 
+  // v2.2.56: Professional tier colors
   Color _getTierColor(String tier) {
     switch (tier.toLowerCase()) {
+      case 'trial':
+        return Color(0xFF009688); // Teal for trial
       case 'pro':
-        return Colors.purple;
+        return Color(0xFF9C27B0); // Purple for pro
       case 'enterprise':
-        return Colors.orange;
+        return Color(0xFFFF9800); // Orange for enterprise
       case 'basic':
       default:
-        return Colors.blue;
+        return Color(0xFF2196F3); // Blue for basic
     }
   }
 
@@ -528,9 +575,9 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
             children: [
               SizedBox(height: 40),
 
-              // Logo
+              // v2.2.56: Updated logo
               Image.asset(
-                'assets/logo.png',
+                'assets/afkzone_logo.png',
                 height: 120,
                 errorBuilder: (context, error, stackTrace) =>
                   Icon(Icons.desktop_windows, size: 120, color: Colors.white),
@@ -800,21 +847,115 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
                         _buildLicenseHistoryItem(_activeLicense!, isHighlight: true),
                       ],
 
-                      // 2. Paid History (Server)
+                      // 2. Purchase History (Collapsible) - show 3 by default
                       if (_paidHistory.isNotEmpty) ...[
                         SizedBox(height: 16),
                         Divider(),
                         SizedBox(height: 8),
-                        Text(
-                          'Lịch sử mua hàng:',
-                          style: TextStyle(fontWeight: FontWeight.bold),
+                        InkWell(
+                          onTap: () => setState(() => _showPurchaseHistory = !_showPurchaseHistory),
+                          child: Row(
+                            children: [
+                              Icon(Icons.shopping_cart, color: Colors.blue, size: 18),
+                              SizedBox(width: 8),
+                              Text(
+                                'Lịch sử mua hàng (${_paidHistory.length})',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                              ),
+                              Spacer(),
+                              Icon(_showPurchaseHistory ? Icons.expand_less : Icons.expand_more, color: Colors.grey),
+                            ],
+                          ),
                         ),
-                        SizedBox(height: 8),
-                        ..._paidHistory.map((license) => _buildLicenseHistoryItem(license)).toList(),
+                        if (_showPurchaseHistory) ...[
+                          SizedBox(height: 8),
+                          ...(_paidHistory.take(3).map((license) => _buildLicenseHistoryItem(license)).toList()),
+                          if (_paidHistory.length > 3) ...[
+                            TextButton(
+                              onPressed: () {
+                                // Show all items in a dialog or expand
+                                showModalBottomSheet(
+                                  context: context,
+                                  isScrollControlled: true,
+                                  builder: (context) => DraggableScrollableSheet(
+                                    initialChildSize: 0.7,
+                                    maxChildSize: 0.9,
+                                    minChildSize: 0.5,
+                                    builder: (context, scrollController) => Container(
+                                      padding: EdgeInsets.all(16),
+                                      child: ListView(
+                                        controller: scrollController,
+                                        children: [
+                                          Text('Tất cả đơn hàng (${_paidHistory.length})', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                                          SizedBox(height: 16),
+                                          ..._paidHistory.map((l) => _buildLicenseHistoryItem(l)).toList(),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: Text('Xem thêm ${_paidHistory.length - 3} đơn hàng...'),
+                            ),
+                          ],
+                        ],
                       ],
 
-                      // 3. Trials (Collapsed)
-                      if (_purchaseHistory.isNotEmpty || _trialHistory.isNotEmpty) ...[
+                      // 3. Activation History (Collapsible) - v2.2.56
+                      if (_activationHistory.isNotEmpty) ...[
+                        SizedBox(height: 16),
+                        Divider(),
+                        SizedBox(height: 8),
+                        InkWell(
+                          onTap: () => setState(() => _showActivationHistory = !_showActivationHistory),
+                          child: Row(
+                            children: [
+                              Icon(Icons.history, color: Colors.green, size: 18),
+                              SizedBox(width: 8),
+                              Text(
+                                'Lịch sử kích hoạt (${_activationHistory.length})',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                              ),
+                              Spacer(),
+                              Icon(_showActivationHistory ? Icons.expand_less : Icons.expand_more, color: Colors.grey),
+                            ],
+                          ),
+                        ),
+                        if (_showActivationHistory) ...[
+                          SizedBox(height: 8),
+                          ...(_activationHistory.take(3).map((activation) => _buildLicenseHistoryItem(activation)).toList()),
+                          if (_activationHistory.length > 3) ...[
+                            TextButton(
+                              onPressed: () {
+                                showModalBottomSheet(
+                                  context: context,
+                                  isScrollControlled: true,
+                                  builder: (context) => DraggableScrollableSheet(
+                                    initialChildSize: 0.7,
+                                    maxChildSize: 0.9,
+                                    minChildSize: 0.5,
+                                    builder: (context, scrollController) => Container(
+                                      padding: EdgeInsets.all(16),
+                                      child: ListView(
+                                        controller: scrollController,
+                                        children: [
+                                          Text('Tất cả kích hoạt (${_activationHistory.length})', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                                          SizedBox(height: 16),
+                                          ..._activationHistory.map((l) => _buildLicenseHistoryItem(l)).toList(),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: Text('Xem thêm ${_activationHistory.length - 3} kích hoạt...'),
+                            ),
+                          ],
+                        ],
+                      ],
+
+                      // 4. Trials (Collapsed by default)
+                      if (_trialHistory.isNotEmpty) ...[
                          SizedBox(height: 8),
                          TextButton.icon(
                            onPressed: () => setState(() => _showTrials = !_showTrials),
