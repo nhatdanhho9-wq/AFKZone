@@ -290,21 +290,18 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
               ),
             ),
           SizedBox(height: 12),
-          // PROMINENT CTA: "Kích hoạt máy này"
+          // PROMINENT CTA: "Kích hoạt máy này" - ALWAYS ENABLED
           Container(
             width: double.infinity,
             height: 48,
             decoration: BoxDecoration(
-              gradient: status == 'active' 
-                ? null 
-                : LinearGradient(
-                    colors: [Color(0xFF4CAF50), Color(0xFF2E7D32)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-              color: status == 'active' ? Colors.grey[400] : null,
+              gradient: LinearGradient(
+                colors: [Color(0xFF4CAF50), Color(0xFF2E7D32)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
               borderRadius: BorderRadius.circular(12),
-              boxShadow: status == 'active' ? [] : [
+              boxShadow: [
                 BoxShadow(
                   color: Color(0xFF4CAF50).withOpacity(0.4),
                   blurRadius: 8,
@@ -315,7 +312,7 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
             child: Material(
               color: Colors.transparent,
               child: InkWell(
-                onTap: status == 'active' ? null : () {
+                onTap: () {
                   _licenseKeyController.text = licenseKey;
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Đã điền license key, bấm KÍCH HOẠT ở trên để sử dụng')),
@@ -327,13 +324,13 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(
-                        status == 'active' ? Icons.check_circle : Icons.rocket_launch,
+                        Icons.rocket_launch,
                         color: Colors.white,
                         size: 22,
                       ),
                       SizedBox(width: 10),
                       Text(
-                        status == 'active' ? 'Đã kích hoạt' : 'KÍCH HOẠT MÁY NÀY',
+                        'KÍCH HOẠT MÁY NÀY',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 16,

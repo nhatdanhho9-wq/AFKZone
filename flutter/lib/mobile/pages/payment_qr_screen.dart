@@ -159,60 +159,15 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
     await prefs.setInt('afk_license_duration', widget.durationDays);
     await prefs.setInt('afk_license_purchased_at', DateTime.now().millisecondsSinceEpoch);
 
-    // ALWAYS set afk_license_key after payment success
+    // Save license key but DO NOT auto-activate (per Codex v2.2.60 requirement)
     await prefs.setString('afk_license_key', licenseKey);
-
-    // Auto-activate license
-    int? expiresAt;
-    int? maxDevices;
-    bool activationSuccessful = false;
-    try {
-      final deviceId = await LicenseService.getDeviceFingerprint();
-
-      // Also save device_id to match LicenseWrapper
-      await prefs.setString('device_id', deviceId);
-
-      final result = await LicenseService.activateLicense(licenseKey, deviceId);
-      if (result != null) {
-        final status = result['status']?.toString().toLowerCase();
-
-        // Only set afk_license_active=true if status is active/activated
-        if (status == 'active' || status == 'activated') {
-          await prefs.setBool('afk_license_active', true);
-          activationSuccessful = true;
-        }
-
-        if (result['tier'] != null) {
-          await prefs.setString('afk_license_tier', result['tier']);
-        }
-        
-        // Handle max_devices - API now returns max_devices, fallback to device_limit
-        maxDevices = result['max_devices'] ?? result['device_limit'] ?? 1;
-        await prefs.setInt('afk_max_devices', maxDevices ?? 1);
-        
-        // Handle expires_at - could be ISO string or int
-        final expiresRaw = result['expires_at'];
-        if (expiresRaw != null) {
-          if (expiresRaw is String) {
-            // Parse ISO string to milliseconds
-            try {
-              final dateTime = DateTime.parse(expiresRaw);
-              expiresAt = dateTime.millisecondsSinceEpoch;
-            } catch (e) {
-              print('Error parsing expires_at: $e');
-            }
-          } else if (expiresRaw is int) {
-            expiresAt = expiresRaw;
-          }
-          
-          if (expiresAt != null) {
-            await prefs.setInt('afk_license_expires_at', expiresAt);
-          }
-        }
-      }
-    } catch (e) {
-      print('Auto-activation error: $e');
-    }
+    
+    // Also save device_id for reference
+    final deviceId = await LicenseService.getDeviceFingerprint();
+    await prefs.setString('device_id', deviceId);
+    
+    // NOTE: Activation removed - user must activate manually via History screen
+    // DO NOT set afk_license_active = true here
 
     // Set dirty flag so license page reloads history
     await prefs.setBool('license_history_dirty', true);
@@ -247,9 +202,7 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      activationSuccessful
-                        ? '🎉 Cảm ơn bạn đã chọn dịch vụ AFK Zone!'
-                        : '⚠️ Thanh toán thành công! Vui lòng kích hoạt license thủ công.',
+                      '🎉 Cảm ơn bạn đã chọn dịch vụ AFK Zone!',
                       style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                     SizedBox(height: 12),
