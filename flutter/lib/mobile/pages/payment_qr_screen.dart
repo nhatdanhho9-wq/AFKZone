@@ -269,7 +269,7 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
                     SizedBox(height: 4),
                     Text('✓ Gói ${widget.tier.toUpperCase()}: ${widget.durationDays} ngày', style: TextStyle(fontSize: 13)),
                     SizedBox(height: 4),
-                    Text('✓ Số thiết bị tối đa: ${maxDevices == -1 ? "Không giới hạn" : maxDevices}', style: TextStyle(fontSize: 13)),
+                    Text('✓ Số thiết bị tùy gói (basic: 2, pro: 5, enterprise+: không giới hạn)', style: TextStyle(fontSize: 13)),
                     SizedBox(height: 4),
                     Text('✓ Kích hoạt tại: Lịch sử mua hàng → Kích hoạt máy này', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
                   ],
@@ -307,13 +307,11 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
                       Icon(Icons.check_circle, color: Colors.white),
                       SizedBox(width: 12),
                       Expanded(child: Text(
-                        activationSuccessful
-                          ? 'License đã sẵn sàng! Vào Lịch sử để kích hoạt.'
-                          : 'Vui lòng kích hoạt license trên thiết bị này.'
+                        'License đã sẵn sàng! Vào Lịch sử mua hàng để kích hoạt.'
                       )),
                     ],
                   ),
-                  backgroundColor: activationSuccessful ? Colors.green : Colors.orange,
+                  backgroundColor: Colors.green,
                   duration: Duration(seconds: 4),
                 ),
               );
