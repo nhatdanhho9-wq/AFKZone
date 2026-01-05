@@ -34,8 +34,11 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
   List<Map<String, dynamic>> _trialHistory = [];
   bool _showTrials = false;
   bool _showPurchaseHistory = true; // Default expanded
+  bool _showActivationHistory = true; // Default expanded
   List<Map<String, dynamic>> _notifications = [];
   bool _notificationsLoading = true;
+  List<Map<String, dynamic>> _activationHistory = []; // Activation history for this device
+  bool _activationHistoryLoading = true;
 
   @override
   void initState() {
@@ -45,9 +48,9 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
     _loadProducts();
     _loadActiveLicense(); // Load local active state
     _loadPurchaseHistory();
+    _loadActivationHistory(); // Load activation history for this device
     _loadNotifications();
-    _checkDirtyFlag();  // Check on init too
-    _checkDirtyFlag();  // Check on init too
+    _checkDirtyFlag();
   }
 
   @override
@@ -361,6 +364,79 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
     }
   }
 
+  Widget _buildActivationHistoryItem(Map<String, dynamic> activation) {
+    final activatedAt = activation['activated_at'] ?? activation['created_at'] ?? '';
+    final licenseKey = activation['license_key'] ?? '';
+    final tier = activation['tier'] ?? 'unknown';
+    final status = activation['status'] ?? 'unknown';
+    
+    return Container(
+      margin: EdgeInsets.only(bottom: 8),
+      padding: EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.purple.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.purple.shade200),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.check_circle, color: Colors.purple, size: 20),
+          SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  tier.toString().toUpperCase(),
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.purple.shade800),
+                ),
+                if (activatedAt.isNotEmpty)
+                  Text('Kích hoạt: $activatedAt', style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+                if (licenseKey.isNotEmpty)
+                  Text('Key: ${licenseKey.length > 16 ? licenseKey.substring(0, 16) + '...' : licenseKey}',
+                       style: TextStyle(fontSize: 10, fontFamily: 'monospace', color: Colors.grey[500])),
+              ],
+            ),
+          ),
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: status == 'active' ? Colors.green.shade100 : Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              status == 'active' ? 'Đang hoạt động' : status.toString(),
+              style: TextStyle(fontSize: 11, color: status == 'active' ? Colors.green.shade800 : Colors.grey.shade700),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAllActivationHistory() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        maxChildSize: 0.9,
+        minChildSize: 0.5,
+        builder: (context, scrollController) => Container(
+          padding: EdgeInsets.all(16),
+          child: ListView(
+            controller: scrollController,
+            children: [
+              Text('Lịch sử kích hoạt (${_activationHistory.length})', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              SizedBox(height: 16),
+              ..._activationHistory.map((h) => _buildActivationHistoryItem(h)).toList(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _loadProducts() async {
     try {
       final products = await ProductService.fetchProducts();
@@ -407,6 +483,30 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _loadActivationHistory() async {
+    setState(() => _activationHistoryLoading = true);
+    try {
+      final deviceId = await LicenseService.getDeviceFingerprint();
+      final response = await http.get(
+        Uri.parse('https://api.afkzone.cloud/api/devices/activation-history?device_id=$deviceId'),
+        headers: {'Cache-Control': 'no-cache'},
+      ).timeout(Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(utf8.decode(response.bodyBytes));
+        final List<dynamic> historyJson = data['activations'] ?? data['history'] ?? [];
+        setState(() {
+          _activationHistory = historyJson.map<Map<String, dynamic>>((h) => Map<String, dynamic>.from(h)).toList();
+          _activationHistoryLoading = false;
+        });
+      } else {
+        setState(() => _activationHistoryLoading = false);
+      }
+    } catch (e) {
+      print('Error loading activation history: $e');
+      setState(() => _activationHistoryLoading = false);
+    }
+  }
 
   Future<void> _checkTrial() async {
     setState(() => _trialLoading = true);
@@ -817,24 +917,8 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
                           ),
                         ],
                       ),
-                      // 1. Active License (Local)
-                      if (_activeLicense != null) ...[
-                        SizedBox(height: 16),
-                        Divider(thickness: 1),
-                        SizedBox(height: 8),
-                         Row(
-                          children: [
-                            Icon(Icons.check_circle, color: Colors.green, size: 16),
-                            SizedBox(width: 8),
-                            Text(
-                              'License đang kích hoạt:',
-                              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green[800]),
-                            ),
-                          ],
-                        ),
-                        SizedBox(height: 8),
-                        _buildLicenseHistoryItem(_activeLicense!, isHighlight: true),
-                      ],
+                      // NOTE: Removed 'License đang kích hoạt' section per Codex v2.2.59 requirement
+                      // All licenses now shown in Purchase History with CTA button
 
                       // 2. Paid History (Collapsible - show 3 by default)
                       if (_paidHistory.isNotEmpty) ...[
@@ -884,6 +968,55 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
                                 );
                               },
                               child: Text('Xem thêm ${_paidHistory.length - 3} đơn hàng...'),
+                            ),
+                        ],
+                      ],
+
+                      // 3. Activation History for this device (Collapsible)
+                      SizedBox(height: 16),
+                      Divider(),
+                      SizedBox(height: 8),
+                      InkWell(
+                        onTap: () => setState(() => _showActivationHistory = !_showActivationHistory),
+                        child: Row(
+                          children: [
+                            Icon(Icons.history, color: Colors.purple, size: 18),
+                            SizedBox(width: 8),
+                            Text(
+                              'Lịch sử kích hoạt (${_activationHistory.length})',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                            ),
+                            Spacer(),
+                            Icon(_showActivationHistory ? Icons.expand_less : Icons.expand_more, color: Colors.grey),
+                          ],
+                        ),
+                      ),
+                      if (_showActivationHistory) ...[
+                        SizedBox(height: 8),
+                        if (_activationHistoryLoading)
+                          Center(child: CircularProgressIndicator())
+                        else if (_activationHistory.isEmpty)
+                          Container(
+                            padding: EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[100],
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Column(
+                              children: [
+                                Icon(Icons.history_toggle_off, size: 40, color: Colors.grey[400]),
+                                SizedBox(height: 8),
+                                Text('Chưa có lịch sử kích hoạt', style: TextStyle(color: Colors.grey[600])),
+                                Text('Kích hoạt license để bắt đầu', style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                              ],
+                            ),
+                          )
+                        else ...[
+                          ...(_activationHistory.take(3).map((h) => _buildActivationHistoryItem(h)).toList()),
+                          if (_activationHistory.length > 3)
+                            TextButton(
+                              onPressed: () => _showAllActivationHistory(),
+                              child: Text('Xem thêm ${_activationHistory.length - 3} lần kích hoạt...'),
                             ),
                         ],
                       ],
