@@ -33,6 +33,7 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
   List<Map<String, dynamic>> _paidHistory = [];
   List<Map<String, dynamic>> _trialHistory = [];
   bool _showTrials = false;
+  bool _showPurchaseHistory = true; // Default expanded
   List<Map<String, dynamic>> _notifications = [];
   bool _notificationsLoading = true;
 
