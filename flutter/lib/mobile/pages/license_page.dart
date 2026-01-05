@@ -312,11 +312,39 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
             child: Material(
               color: Colors.transparent,
               child: InkWell(
-                onTap: () {
-                  _licenseKeyController.text = licenseKey;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Đã điền license key, bấm KÍCH HOẠT ở trên để sử dụng')),
-                  );
+                onTap: () async {
+                  // Call real activate API (A3 fix)
+                  try {
+                    final deviceId = await LicenseService.getDeviceFingerprint();
+                    final result = await LicenseService.activateLicense(licenseKey, deviceId);
+                    if (result != null) {
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setString('afk_license_key', licenseKey);
+                      await prefs.setBool('afk_license_active', true);
+                      await prefs.setString('device_id', deviceId);
+                      if (result['tier'] != null) {
+                        await prefs.setString('afk_license_tier', result['tier']);
+                      }
+                      if (result['max_devices'] != null) {
+                        await prefs.setInt('afk_max_devices', result['max_devices']);
+                      }
+                      await prefs.setBool('license_history_dirty', true);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('✅ Kích hoạt thành công!'), backgroundColor: Colors.green),
+                      );
+                      // Reload history
+                      _loadPurchaseHistory();
+                      _loadActivationHistory();
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('❌ Kích hoạt thất bại'), backgroundColor: Colors.red),
+                      );
+                    }
+                  } catch (e) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('❌ Lỗi: $e'), backgroundColor: Colors.red),
+                    );
+                  }
                 },
                 borderRadius: BorderRadius.circular(12),
                 child: Center(
@@ -349,7 +377,18 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
     );
   }
 
-  Color _getTierColor(String tier) {
+  // G16: Support color_hex from API, fallback to hardcoded defaults
+  Color _getTierColor(String tier, {String? colorHex}) {
+    // If color_hex provided from API, use it
+    if (colorHex != null && colorHex.isNotEmpty) {
+      try {
+        final hex = colorHex.replaceFirst('#', '');
+        return Color(int.parse('FF$hex', radix: 16));
+      } catch (e) {
+        // Fall through to default colors
+      }
+    }
+    // Fallback to hardcoded colors
     switch (tier.toLowerCase()) {
       case 'pro':
         return Colors.purple;

@@ -552,10 +552,18 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
 
   Future<void> _assignLicenseToDevice(String targetDeviceId) async {
     try {
+      // D9 fix: Backend requires device_id (current) + target_device_id
+      final prefs = await SharedPreferences.getInstance();
+      final currentDeviceId = prefs.getString('device_id') ?? '';
+      
       final response = await http.post(
         Uri.parse('https://api.afkzone.cloud/api/license/assign'),
         headers: {'Content-Type': 'application/json'},
-        body: json.encode({'license_key': _licenseKey, 'target_device_id': targetDeviceId}),
+        body: json.encode({
+          'license_key': _licenseKey,
+          'device_id': currentDeviceId,        // Current device (D9 fix)
+          'target_device_id': targetDeviceId,  // Target device to assign to
+        }),
       ).timeout(Duration(seconds: 10));
       
       if (response.statusCode == 200) {
@@ -565,7 +573,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ ${data['detail'] ?? 'Lỗi gán license'}'), backgroundColor: Colors.red));
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Lỗi kết nối'), backgroundColor: Colors.red));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Lỗi kết nối: $e'), backgroundColor: Colors.red));
     }
   }
 
@@ -1846,8 +1854,9 @@ class _RegionSwitchDialogContentState extends State<_RegionSwitchDialogContent> 
             Text(_error!, style: TextStyle(color: Colors.red))
           else
             ..._regions.map((region) => ListTile(
-              title: Text(region['name'] ?? region['code'] ?? 'Unknown'),
-              subtitle: Text(region['id_server'] ?? ''),
+              // F14 fix: Use display_name, fallback to hostname (not 'Unknown')
+              title: Text(region['display_name'] ?? region['name'] ?? region['hostname'] ?? 'Ho Chi Minh (Default)'),
+              subtitle: Text(region['id_server'] ?? region['hostname'] ?? ''),
               leading: Icon(
                 Icons.flag,
                 color: region['is_default'] == true ? Colors.red : Colors.blue,
@@ -1934,19 +1943,20 @@ class _DeviceListDialogContentState extends State<_DeviceListDialogContent> {
     );
     if (confirm != true) return;
     try {
-      final response = await http.post(
-        Uri.parse('https://api.afkzone.cloud/api/license/kick'),
+      // D11 fix: Use DELETE /api/license/device/{id}/clear endpoint
+      final response = await http.delete(
+        Uri.parse('https://api.afkzone.cloud/api/license/device/$deviceId/clear'),
         headers: {'Content-Type': 'application/json'},
-        body: json.encode({'license_key': widget.licenseKey, 'device_id': deviceId}),
       ).timeout(Duration(seconds: 10));
       if (response.statusCode == 200) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('✅ Đã gỡ'), backgroundColor: Colors.green));
-        _loadDevices();
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('✅ Đã gỡ thiết bị'), backgroundColor: Colors.green));
+        _loadDevices(); // D11: Refresh list after kick
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Lỗi'), backgroundColor: Colors.red));
+        final data = json.decode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ ${data['detail'] ?? 'Lỗi gỡ thiết bị'}'), backgroundColor: Colors.red));
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Lỗi kết nối'), backgroundColor: Colors.red));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Lỗi kết nối: $e'), backgroundColor: Colors.red));
     }
   }
 
