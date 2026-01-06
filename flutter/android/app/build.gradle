@@ -65,8 +65,13 @@ repositories {
     }
     google()
     mavenCentral()
+    gradlePluginPortal()  // Required for osdetector-gradle-plugin (transitive from protobuf-gradle-plugin)
     maven { url 'https://repo1.maven.org/maven2' }
     maven { url 'https://jitpack.io' }
+    // Fallback mirrors for CI reliability (Maven Central 403 workaround)
+    maven { url 'https://plugins.gradle.org/m2/' }
+    maven { url 'https://maven.aliyun.com/repository/public' }
+    maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
 }
 
 protobuf {
