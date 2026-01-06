@@ -39,7 +39,7 @@ env:
   # 2. Update the `VCPKG_COMMIT_ID` in `ci.yml` and `playground.yml`.
   VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
   ARMV7_VCPKG_COMMIT_ID: "6f29f12e82a8293156836ad81cc9bf5af41fe836" # 2025.01.13, got "/opt/artifacts/vcpkg/vcpkg: No such file or directory" with latest version
-  VERSION: "2.2.63"
+  VERSION: "2.2.64"
   NDK_VERSION: "r27c"
   #signing keys env variable checks
   ANDROID_SIGNING_KEY: "${{ secrets.ANDROID_SIGNING_KEY }}"
@@ -962,7 +962,9 @@ jobs:
         with:
           vcpkgDirectory: /opt/artifacts/vcpkg
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
-          doNotCache: false
+          # GitHub cache service can be transiently unavailable (400 / outage).
+          # Disable run-vcpkg caching for tag builds to avoid false CI failures.
+          doNotCache: true
 
       - name: Install vcpkg dependencies
         run: |
@@ -1005,6 +1007,8 @@ jobs:
           components: "rustfmt"
 
       - uses: Swatinem/rust-cache@v2
+        # Cache outages should not fail builds
+        continue-on-error: true
         with:
           prefix-key: rustdesk-lib-cache-android # TODO: drop '-android' part after caches are invalidated
           key: ${{ matrix.job.target }}
@@ -1049,6 +1053,8 @@ jobs:
         shell: bash
         env:
           JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           export PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH
           # Increase Gradle JVM memory for CI builds
@@ -1221,6 +1227,12 @@ jobs:
           cd $(dirname $(dirname $(which flutter)))
           [[ "3.24.5" == ${{env.ANDROID_FLUTTER_VERSION}} ]] && git apply ${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff
 
+      - uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: ${{ env.NDK_VERSION }}
+          add-to-path: true
+
       - name: Restore bridge files
         uses: actions/download-artifact@master
         with:
@@ -1256,6 +1268,8 @@ jobs:
         shell: bash
         env:
           JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           export PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH
           # Increase Gradle JVM memory for CI builds
