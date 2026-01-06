@@ -16,6 +16,7 @@ import '../../common.dart';
 import '../../common/widgets/dialog.dart';
 import '../../common/widgets/login.dart';
 import '../../common/license_service.dart';
+import '../../common/auth_service.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -1911,21 +1912,21 @@ class _DeviceListDialogContentState extends State<_DeviceListDialogContent> {
   Future<void> _loadDevices() async {
     setState(() => _isLoading = true);
     try {
-      final response = await http.get(
-        Uri.parse('https://api.afkzone.cloud/api/license/${widget.licenseKey}/slots'),
-        headers: {'Cache-Control': 'no-cache'},
-      ).timeout(Duration(seconds: 10));
+      // Use JWT-authenticated /user/devices endpoint
+      final response = await AuthService.authGet('/user/devices');
       if (response.statusCode == 200) {
         final data = json.decode(utf8.decode(response.bodyBytes));
         setState(() {
-          _devices = (data['devices'] ?? data['slots'] ?? []).map<Map<String, dynamic>>((d) => Map<String, dynamic>.from(d)).toList();
+          _devices = (data['devices'] ?? []).map<Map<String, dynamic>>((d) => Map<String, dynamic>.from(d)).toList();
           _isLoading = false;
         });
+      } else if (response.statusCode == 401) {
+        setState(() { _error = 'Vui lòng đăng nhập lại'; _isLoading = false; });
       } else {
         setState(() { _error = 'Không thể tải danh sách'; _isLoading = false; });
       }
     } catch (e) {
-      setState(() { _error = 'Lỗi kết nối'; _isLoading = false; });
+      setState(() { _error = 'Lỗi kết nối: $e'; _isLoading = false; });
     }
   }
 
@@ -1943,14 +1944,13 @@ class _DeviceListDialogContentState extends State<_DeviceListDialogContent> {
     );
     if (confirm != true) return;
     try {
-      // D11 fix: Use DELETE /api/license/device/{id}/clear endpoint
-      final response = await http.delete(
-        Uri.parse('https://api.afkzone.cloud/api/license/device/$deviceId/clear'),
-        headers: {'Content-Type': 'application/json'},
-      ).timeout(Duration(seconds: 10));
+      // Use JWT-authenticated DELETE /user/devices/{id}/clear endpoint
+      final response = await AuthService.authDelete('/user/devices/$deviceId/clear');
       if (response.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('✅ Đã gỡ thiết bị'), backgroundColor: Colors.green));
-        _loadDevices(); // D11: Refresh list after kick
+        _loadDevices(); // Refresh list after kick
+      } else if (response.statusCode == 401) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Phiên đăng nhập hết hạn'), backgroundColor: Colors.red));
       } else {
         final data = json.decode(response.body);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ ${data['detail'] ?? 'Lỗi gỡ thiết bị'}'), backgroundColor: Colors.red));

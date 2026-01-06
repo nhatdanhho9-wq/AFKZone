@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common/license_service.dart';
+import 'package:flutter_hbb/common/auth_service.dart';
 import 'package:flutter_hbb/services/product_service.dart';
 import 'package:flutter_hbb/models/product_model.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'payment_screen.dart';
+import 'login_page.dart';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -117,13 +119,30 @@ class _LicensePageState extends State<LicensePage> with WidgetsBindingObserver {
 
   Future<void> _loadPurchaseHistory() async {
     try {
-      final deviceId = await _getDeviceId();
-      // Fetch ALL history including trials and expired
-      final history = await LicenseService.getPurchaseHistory(
-        deviceId, 
-        includeTrial: true, 
-        includeExpired: true
-      );
+      // Check if user is logged in (JWT auth)
+      final isLoggedIn = await AuthService.isLoggedIn();
+      List<Map<String, dynamic>> history = [];
+      
+      if (isLoggedIn) {
+        // Use new account-based endpoint with JWT
+        final response = await AuthService.authGet('/user/licenses');
+        if (response.statusCode == 200) {
+          final data = json.decode(utf8.decode(response.bodyBytes));
+          final List<dynamic> licenses = data['licenses'] ?? [];
+          history = licenses.map<Map<String, dynamic>>((l) => Map<String, dynamic>.from(l)).toList();
+        } else if (response.statusCode == 401) {
+          // Token expired, clear and show login
+          await AuthService.logout();
+        }
+      } else {
+        // Fallback to old device-based endpoint for non-logged-in users
+        final deviceId = await _getDeviceId();
+        history = await LicenseService.getPurchaseHistory(
+          deviceId, 
+          includeTrial: true, 
+          includeExpired: true
+        );
+      }
       
       if (mounted) {
         setState(() {
