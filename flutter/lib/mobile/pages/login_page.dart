@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common/auth_service.dart';
 import 'register_page.dart';
-import 'license_page.dart';
+import 'license_page.dart' as local;
 
 class LoginPage extends StatefulWidget {
   const LoginPage({Key? key}) : super(key: key);
@@ -42,7 +42,7 @@ class _LoginPageState extends State<LoginPage> {
       // Navigate to license page on success
       if (mounted) {
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => LicensePage()),
+          MaterialPageRoute(builder: (context) => local.LicensePage()),
         );
       }
     } catch (e) {
@@ -180,7 +180,7 @@ class _LoginPageState extends State<LoginPage> {
                 TextButton(
                   onPressed: () {
                     Navigator.of(context).pushReplacement(
-                      MaterialPageRoute(builder: (context) => LicensePage()),
+                      MaterialPageRoute(builder: (context) => local.LicensePage()),
                     );
                   },
                   child: Text('Bỏ qua đăng nhập', style: TextStyle(color: Colors.grey)),
