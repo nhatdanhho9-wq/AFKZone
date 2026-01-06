@@ -1,37 +1,60 @@
 #!/usr/bin/env python3
-import psycopg2
+"""Check current database schema"""
+from database import get_db
+from sqlalchemy import text
 
-conn = psycopg2.connect(
-    host="172.26.31.115",
-    database="afkzone_license",
-    user="postgres",
-    password="your_secure_password"
-)
+db = next(get_db())
 
-cur = conn.cursor()
+# Get all tables
+print("=== TABLES ===")
+tables = db.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema='public'")).fetchall()
+for t in tables:
+    print(f"  - {t[0]}")
 
-print("=== license_devices table schema ===")
-cur.execute("""
-    SELECT column_name, data_type 
-    FROM information_schema.columns 
-    WHERE table_name = 'license_devices'
-    ORDER BY ordinal_position
-""")
+# Check licenses table structure
+print("\n=== LICENSES TABLE ===")
+try:
+    cols = db.execute(text("SELECT column_name, data_type FROM information_schema.columns WHERE table_name='licenses'")).fetchall()
+    for c in cols:
+        print(f"  {c[0]}: {c[1]}")
+except Exception as e:
+    print(f"  Error: {e}")
 
-for row in cur.fetchall():
-    print(f"  {row[0]}: {row[1]}")
+# Check if users table exists
+print("\n=== USERS TABLE ===")
+try:
+    cols = db.execute(text("SELECT column_name, data_type FROM information_schema.columns WHERE table_name='users'")).fetchall()
+    if cols:
+        for c in cols:
+            print(f"  {c[0]}: {c[1]}")
+    else:
+        print("  Table does not exist")
+except Exception as e:
+    print(f"  Error: {e}")
 
-print("\n=== licenses table schema ===")
-cur.execute("""
-    SELECT column_name, data_type 
-    FROM information_schema.columns 
-    WHERE table_name = 'licenses'
-    ORDER BY ordinal_position
-""")
+# Check bank_orders
+print("\n=== BANK_ORDERS TABLE ===")
+try:
+    cols = db.execute(text("SELECT column_name, data_type FROM information_schema.columns WHERE table_name='bank_orders'")).fetchall()
+    for c in cols:
+        print(f"  {c[0]}: {c[1]}")
+except Exception as e:
+    print(f"  Error: {e}")
 
-for row in cur.fetchall():
-    print(f"  {row[0]}: {row[1]}")
+# Check tiers table
+print("\n=== TIERS TABLE ===")
+try:
+    cols = db.execute(text("SELECT column_name, data_type FROM information_schema.columns WHERE table_name='tiers'")).fetchall()
+    for c in cols:
+        print(f"  {c[0]}: {c[1]}")
+except Exception as e:
+    print(f"  Error: {e}")
 
-cur.close()
-conn.close()
-
+# Check products table
+print("\n=== PRODUCTS TABLE ===")
+try:
+    cols = db.execute(text("SELECT column_name, data_type FROM information_schema.columns WHERE table_name='products'")).fetchall()
+    for c in cols:
+        print(f"  {c[0]}: {c[1]}")
+except Exception as e:
+    print(f"  Error: {e}")
