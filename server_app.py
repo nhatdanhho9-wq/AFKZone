@@ -731,47 +731,8 @@ async def get_user_purchase_history(device_id: str, db: Session = Depends(get_db
     
     return {"orders": result}
 
-@app.get("/user/activation-history")
-async def get_user_activation_history(device_id: str, db: Session = Depends(get_db)):
-    """
-    v2.2.56: Get activation history for a specific device.
-    Returns all licenses this device has been activated on.
-    Auth: device_id query param (user endpoint)
-    """
-    activations = db.execute(text("""
-        SELECT 
-            ld.license_key,
-            l.tier,
-            l.expires_at,
-            ld.activated_at,
-            l.max_devices,
-            (SELECT COUNT(*) FROM license_devices WHERE license_key = l.license_key) as devices_used,
-            CASE 
-                WHEN l.is_revoked THEN 'revoked'
-                WHEN l.expires_at < NOW() THEN 'expired'
-                ELSE 'active'
-            END as status
-        FROM license_devices ld
-        JOIN licenses l ON ld.license_key = l.license_key
-        WHERE ld.device_id = :did
-        ORDER BY ld.activated_at DESC
-    """), {"did": device_id}).fetchall()
-    
-    return {
-        "device_id": device_id,
-        "activations": [
-            {
-                "license_key": a[0],
-                "tier": a[1],
-                "expires_at": to_iso(a[2]),
-                "activated_at": to_iso(a[3]),
-                "devices_max": a[4] if a[4] != -1 else -1,
-                "devices_used": a[5],
-                "status": a[6]
-            }
-            for a in activations
-        ]
-    }
+# NOTE: /user/activation-history is defined below with JWT protection (verify_user_token)
+# The old unprotected route has been removed for security
 
 # Alias endpoint for UI compatibility
 @app.get("/api/devices/activation-history")
@@ -3224,15 +3185,36 @@ def user_register(req: UserRegisterRequest, db: Session = Depends(get_db)):
     return {"success": True, "user_id": user_id, "email": req.email.lower(), "token": token}
 
 @app.post("/auth/login")
-def user_login(req: UserLoginRequest, db: Session = Depends(get_db)):
-    """Login with email/password, returns JWT token"""
+def user_login(req: UserLoginRequest, request: Request, db: Session = Depends(get_db)):
+    """Login with email/password, returns JWT token. Rate limited: 5 failed attempts / 15 min."""
+    email = req.email.lower()
+    ip_address = request.client.host if request.client else None
+    
+    # Check failed login attempts in last 15 minutes
+    failed_attempts = db.execute(text("""
+        SELECT COUNT(*) FROM login_attempts 
+        WHERE email = :email AND success = FALSE AND attempt_time > NOW() - INTERVAL '15 minutes'
+    """), {"email": email}).fetchone()
+    
+    if failed_attempts and failed_attempts[0] >= 5:
+        raise HTTPException(status_code=429, detail="Too many login attempts. Please try again in 15 minutes.")
+    
     user = db.execute(text("""
         SELECT id, email, password_hash, name FROM users WHERE email = :email AND is_active = TRUE
-    """), {"email": req.email.lower()}).fetchone()
-    if not user:
+    """), {"email": email}).fetchone()
+    
+    if not user or not bcrypt.checkpw(req.password.encode(), user[2].encode()):
+        # Log failed attempt
+        db.execute(text("""
+            INSERT INTO login_attempts (email, ip_address, attempt_time, success) VALUES (:email, :ip, NOW(), FALSE)
+        """), {"email": email, "ip": ip_address})
+        db.commit()
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    if not bcrypt.checkpw(req.password.encode(), user[2].encode()):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+    
+    # Log successful attempt
+    db.execute(text("""
+        INSERT INTO login_attempts (email, ip_address, attempt_time, success) VALUES (:email, :ip, NOW(), TRUE)
+    """), {"email": email, "ip": ip_address})
     db.execute(text("UPDATE users SET last_login = NOW() WHERE id = :id"), {"id": user[0]})
     db.commit()
     return {"success": True, "user_id": user[0], "email": user[1], "name": user[3], "token": create_user_token(user[0], user[1])}
