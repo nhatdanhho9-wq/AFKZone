@@ -1,146 +1,98 @@
-openapi: 3.0.3
+openapi: 3.0.0
 info:
   title: AFK Zone License API
-  version: 2.2.0
-  description: |
-    API for managing AFK Zone licenses, payments, and devices.
-    
-    **Contract Status**: Frozen
-    **Date Fixed**: 2026-01-01
-    **Canonical Webhook**: `/webhook/casso`
-    **Date Format**: ISO 8601
-
+  version: 2.2.62
+  description: Account-based licensing API for AFK Zone
 
 servers:
   - url: https://api.afkzone.cloud
-    description: Production Server
-
-# NOTE: No global security - public endpoints don't require auth
-# Admin endpoints specify security: BearerAuth individually
-
-components:
-  securitySchemes:
-    BearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-    AdminKey:
-      type: apiKey
-      in: header
-      name: admin_key
-
-  schemas:
-    StandardResponse:
-      $ref: './schemas/api_response.json'
-    ErrorResponse:
-      $ref: './schemas/error_response.json'
-    
-    LicenseCheckRequest:
-      type: object
-      properties:
-        license_key: {type: string}
-        device_id: {type: string}
-      required: [license_key, device_id]
-
-    LicenseCheckResponse:
-      type: object
-      properties:
-        status: {type: string, enum: [active, expired, revoked]}
-        tier: {type: string}
-        expires_at: {type: string, format: date-time}
-        device_limit: {type: integer}
+    description: Production
 
 paths:
-  /check:
+  # ==================== USER AUTHENTICATION ====================
+  /auth/register:
     post:
-      summary: Check license validity
-      tags: [Client]
+      summary: Register new user
+      tags: [User Auth]
       requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/LicenseCheckRequest'
-      responses:
-        200:
-          description: License is active
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/LicenseCheckResponse'
-        404:
-          description: License not found
-        410:
-          description: License expired
-
-  /activate-v2:
-    post:
-      summary: Activate license on device (Multi-device support)
-      tags: [Client]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/LicenseCheckRequest'
-      responses:
-        200:
-          description: Activation successful
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/LicenseCheckResponse'
-                  - type: object
-                    properties:
-                      message: {type: string}
-                      device_count: {type: integer}
-
-  /webhook/casso:
-    post:
-      summary: Payment Webhook (Canonical)
-      description: Receives payment notifications from Casso (MB Bank) via Secure Token.
-      tags: [Webhook]
-      parameters:
-        - in: header
-          name: secure-token
-          schema: {type: string}
-          required: true
-          description: Must match CASSO_WEBHOOK_TOKEN env var
-      requestBody:
-        required: true
         content:
           application/json:
             schema:
               type: object
+              required: [email, password]
               properties:
-                data:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      amount: {type: integer}
-                      description: {type: string}
-                      tid: {type: string}
+                email: { type: string }
+                password: { type: string }
+                name: { type: string }
       responses:
         200:
-          description: Processed successfully
+          description: Registration successful
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  success: {type: boolean}
-                  results: {type: array}
-        401:
-          description: Invalid or missing secure-token
+                  success: { type: boolean }
+                  user_id: { type: integer }
+                  email: { type: string }
+                  token: { type: string }
+        400:
+          description: Email already registered
 
-  /admin/licenses/all:
+  /auth/login:
+    post:
+      summary: Login with email/password
+      tags: [User Auth]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string }
+                password: { type: string }
+      responses:
+        200:
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  user_id: { type: integer }
+                  email: { type: string }
+                  name: { type: string }
+                  token: { type: string }
+        401:
+          description: Invalid credentials
+
+  /auth/me:
     get:
-      summary: Get all licenses
-      tags: [Admin]
-      security:
-        - BearerAuth: []
+      summary: Get current user info
+      tags: [User Auth]
+      security: [{ bearerAuth: [] }]
+      responses:
+        200:
+          description: User info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id: { type: integer }
+                  email: { type: string }
+                  name: { type: string }
+                  created_at: { type: string }
+                  last_login: { type: string }
+
+  # ==================== USER LICENSES ====================
+  /user/licenses:
+    get:
+      summary: Get user's licenses with slot info
+      tags: [User Licenses]
+      security: [{ bearerAuth: [] }]
       responses:
         200:
           description: List of licenses
@@ -154,294 +106,118 @@ paths:
                     items:
                       type: object
                       properties:
-                        license_key: {type: string}
-                        tier: {type: string}
-                        created_at: {type: string, format: date-time}
+                        license_key: { type: string }
+                        tier: { type: string }
+                        duration_days: { type: integer }
+                        expires_at: { type: string }
+                        status: { type: string, enum: [active, inactive, expired] }
+                        devices_max: { type: integer }
+                        devices_used: { type: integer }
 
-  # ==================== CLIENT ENDPOINTS ====================
-  /activate:
-    post:
-      summary: Activate license on device (Legacy)
-      tags: [Client]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/LicenseCheckRequest'
-      responses:
-        200:
-          description: Activation successful
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/LicenseCheckResponse'
-
-  /trial/check:
-    post:
-      summary: Check if device has used trial
-      tags: [Client, Trial]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                device_fingerprint: {type: string}
-              required: [device_fingerprint]
-      responses:
-        200:
-          description: Trial status
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  has_trialed: {type: boolean}
-                  trial_date: {type: string, format: date-time, nullable: true}
-
-  /trial/generate:
-    post:
-      summary: Generate trial license
-      tags: [Client, Trial]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                device_fingerprint: {type: string}
-                ip_address: {type: string}
-              required: [device_fingerprint]
-      responses:
-        200:
-          description: Trial generated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/LicenseCheckResponse'
-        403:
-          description: Already used trial
-
-  /version/check:
+  /user/activation-history:
     get:
-      summary: Check for app updates
-      tags: [Client]
+      summary: Get activation history for device
+      tags: [User Licenses]
+      security: [{ bearerAuth: [] }]
       parameters:
-        - in: query
-          name: current
-          schema: {type: string}
+        - name: device_id
+          in: query
           required: true
+          schema: { type: string }
       responses:
         200:
-          description: Version info
+          description: Activation history
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  has_update: {type: boolean}
-                  latest_version: {type: string}
-                  download_url: {type: string}
-                  force_update: {type: boolean}
-
-  /license/logout:
-    post:
-      summary: Logout device from license
-      tags: [Client]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/LicenseCheckRequest'
-      responses:
-        200:
-          description: Logout successful
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success: {type: boolean}
-                  message: {type: string}
-
-  /license/info:
-    get:
-      summary: Get license info
-      tags: [Client]
-      parameters:
-        - in: query
-          name: license_key
-          schema: {type: string}
-          required: true
-      responses:
-        200:
-          description: License details
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  license_key: {type: string}
-                  tier: {type: string}
-                  duration_days: {type: integer}
-                  activated_at: {type: string, format: date-time}
-                  expires_at: {type: string, format: date-time}
-                  max_devices: {type: integer}
-                  device_count: {type: integer}
-                  devices_remaining: {type: integer}
-                  is_revoked: {type: boolean}
-
-  /license/recover:
-    post:
-      summary: Recover license by transaction code
-      tags: [Client]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                trans_code: {type: string}
-              required: [trans_code]
-      responses:
-        200:
-          description: License recovered
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  license_key: {type: string}
-                  tier: {type: string}
-                  duration_days: {type: integer}
-                  expires_at: {type: string, format: date-time}
-
-  /user/history:
-    get:
-      summary: Get user purchase history
-      tags: [Client]
-      parameters:
-        - in: query
-          name: device_id
-          schema: {type: string}
-        - in: query
-          name: fingerprint
-          schema: {type: string}
-          description: Device fingerprint (optional)
-      responses:
-        200:
-          description: License history
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  licenses:
+                  device_id: { type: string }
+                  activations:
                     type: array
                     items:
                       type: object
                       properties:
-                        license_key: {type: string}
-                        tier: {type: string}
-                        duration_days: {type: integer}
-                        expires_at: {type: string, format: date-time}
-                        status: {type: string, enum: [active, expired, revoked]}
+                        license_key: { type: string }
+                        tier: { type: string }
+                        expires_at: { type: string }
+                        activated_at: { type: string }
+                        devices_max: { type: integer }
+                        devices_used: { type: integer }
+                        status: { type: string }
 
-  /payment/create:
-    post:
-      summary: Create ZaloPay order
-      tags: [Client, Payment]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                tier: {type: string}
-                duration_days: {type: integer}
-                device_id: {type: string}
-              required: [tier, duration_days, device_id]
-      responses:
-        200:
-          description: Order created
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  order_id: {type: string}
-                  amount: {type: integer}
-                  zp_trans_token: {type: string}
-                  order_url: {type: string}
-
-  /payment/bank/create:
-    post:
-      summary: Create bank transfer order
-      tags: [Client, Payment]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                tier: {type: string}
-                duration_days: {type: integer}
-                device_id: {type: string}
-              required: [tier, duration_days, device_id]
-      responses:
-        200:
-          description: Order created
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  trans_code: {type: string}
-                  amount: {type: integer}
-                  qr_url: {type: string}
-                  bank_info:
-                    type: object
-                    properties:
-                      bank_name: {type: string}
-                      account_no: {type: string}
-
-  /payment/bank/status:
+  # ==================== USER DEVICES ====================
+  /user/devices:
     get:
-      summary: Check bank order status
-      tags: [Client, Payment]
-      parameters:
-        - in: query
-          name: trans_code
-          schema: {type: string}
-          required: true
+      summary: Get user's activated devices
+      tags: [User Devices]
+      security: [{ bearerAuth: [] }]
       responses:
         200:
-          description: Order status
+          description: List of devices
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  trans_code: {type: string}
-                  status: {type: string, enum: [pending, success, expired]}
-                  license_key: {type: string, nullable: true}
-                  amount: {type: integer}
-                  tier: {type: string}
-                  duration_days: {type: integer}
-                  created_at: {type: string, format: date-time}
-                  paid_at: {type: string, format: date-time}
+                  devices:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        device_id: { type: string }
+                        alias: { type: string }
+                        last_seen: { type: string }
+                        activated_at: { type: string }
+                        license_key: { type: string }
+                        tier: { type: string }
 
+  /user/devices/{device_id}/clear:
+    delete:
+      summary: Clear/kick device from license
+      tags: [User Devices]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        200:
+          description: Device removed
+        404:
+          description: Device not found
+
+  /user/devices/{device_id}/alias:
+    patch:
+      summary: Update device alias
+      tags: [User Devices]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                alias: { type: string }
+      responses:
+        200:
+          description: Alias updated
+
+  # ==================== PRODUCTS ====================
   /products:
     get:
-      summary: Get available products
-      tags: [Client]
+      summary: Get products with tier colors
+      tags: [Products]
+      parameters:
+        - name: active_only
+          in: query
+          schema: { type: boolean, default: true }
       responses:
         200:
           description: Product list
@@ -455,90 +231,25 @@ paths:
                     items:
                       type: object
                       properties:
-                        id: {type: integer}
-                        name: {type: string}
-                        tier: {type: string}
-                        duration_days: {type: integer}
-                        price: {type: integer}
+                        id: { type: integer }
+                        name: { type: string }
+                        tier: { type: string }
+                        duration_days: { type: integer }
+                        price: { type: integer }
+                        display_price: { type: string }
+                        color_hex: { type: string }
 
-  /tiers:
+  /public/regions:
     get:
-      summary: Get available tiers
-      tags: [Client]
+      summary: Get available regions
+      tags: [Public]
       responses:
         200:
-          description: Tier list
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  tiers:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        name: {type: string}
-                        max_devices: {type: integer}
+          description: Region list with display_name
 
-  /notifications:
-    get:
-      summary: Get user notifications
-      tags: [Client]
-      parameters:
-        - in: query
-          name: device_id
-          schema: {type: string}
-          required: true
-      responses:
-        200:
-          description: Notification list
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  total: {type: integer}
-                  unread: {type: integer}
-                  notifications:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id: {type: integer}
-                        title: {type: string}
-                        message: {type: string}
-                        type: {type: string}
-                        created_at: {type: string, format: date-time}
-                        expires_at: {type: string, format: date-time}
-                        is_read: {type: boolean}
-
-  /connection/log:
-    post:
-      summary: Log connection event
-      tags: [Client]
-      security: []  # Public endpoint
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                device_id: {type: string}
-                remote_id: {type: string}
-                peer_id: {type: string}
-                connection_type: {type: string}
-                action: {type: string, enum: [connect, disconnect]}
-                license_key: {type: string}
-                ip_address: {type: string}
-              required: [device_id]
-      responses:
-        200:
-          description: Logged successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status: {type: string}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
