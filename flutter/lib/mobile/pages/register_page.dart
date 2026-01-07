@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide LicensePage;
 import 'package:flutter_hbb/common/auth_service.dart';
 import 'license_page.dart';
 
