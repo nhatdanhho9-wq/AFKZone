@@ -1,6 +1,6 @@
-import 'package:flutter/material.dart' hide LicensePage;
+import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common/auth_service.dart';
-import 'license_page.dart';
+import 'license_page.dart' as local;
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({Key? key}) : super(key: key);
@@ -49,7 +49,7 @@ class _RegisterPageState extends State<RegisterPage> {
           SnackBar(content: Text('✅ Đăng ký thành công!'), backgroundColor: Colors.green),
         );
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (context) => LicensePage()),
+          MaterialPageRoute(builder: (context) => local.LicensePage()),
           (route) => false,
         );
       }

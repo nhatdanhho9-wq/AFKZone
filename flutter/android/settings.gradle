@@ -10,9 +10,19 @@ pluginManagement {
     includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
 
     repositories {
+        // CRITICAL: Force osdetector-gradle-plugin (com.google.gradle) to resolve from Plugin Portal ONLY
+        // This prevents Maven Central 403 errors that randomly occur
+        exclusiveContent {
+            forRepository {
+                gradlePluginPortal()
+            }
+            filter {
+                includeGroup "com.google.gradle"  // osdetector-gradle-plugin group
+            }
+        }
         google()
         mavenCentral()
-        gradlePluginPortal()
+        gradlePluginPortal()  // General plugin fallback
         // Fallback repositories for better reliability (CI 403 workaround)
         maven { url 'https://maven.aliyun.com/repository/public' }
         maven { url 'https://maven.aliyun.com/repository/google' }

@@ -1,12 +1,12 @@
 import 'dart:async';
-import 'package:flutter/material.dart' hide LicensePage;
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_hbb/services/payment_service.dart';
 import 'package:flutter_hbb/common/license_service.dart';
 import 'package:flutter_hbb/common/payment_websocket_service.dart';
-import 'package:flutter_hbb/mobile/pages/license_page.dart';
+import 'package:flutter_hbb/mobile/pages/license_page.dart' as local;
 // LicenseInfoPage removed - using built-in Settings instead
 
 class PaymentQRScreen extends StatefulWidget {
@@ -295,7 +295,7 @@ class _PaymentQRScreenState extends State<PaymentQRScreen> {
             onPressed: () {
               // Always navigate to License Page (History) for activation
               Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute(builder: (context) => LicensePage()),
+                MaterialPageRoute(builder: (context) => local.LicensePage()),
                 (route) => route.isFirst,
               );
 

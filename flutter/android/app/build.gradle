@@ -63,12 +63,21 @@ repositories {
         url = findRustlsPlatformVerifierMavenDir()
         metadataSources.artifact()
     }
+    // Gradle Plugin Portal FIRST - required for osdetector-gradle-plugin (transitive from protobuf-gradle-plugin)
+    // Use exclusiveContent to ensure com.google.gradle artifacts always come from Plugin Portal, not Maven Central
+    exclusiveContent {
+        forRepository {
+            gradlePluginPortal()
+        }
+        filter {
+            includeGroup "com.google.gradle"  // osdetector-gradle-plugin group
+        }
+    }
     google()
     mavenCentral()
-    gradlePluginPortal()  // Required for osdetector-gradle-plugin (transitive from protobuf-gradle-plugin)
     maven { url 'https://repo1.maven.org/maven2' }
     maven { url 'https://jitpack.io' }
-    // Fallback mirrors for CI reliability (Maven Central 403 workaround)
+    // Fallback mirrors for CI reliability
     maven { url 'https://plugins.gradle.org/m2/' }
     maven { url 'https://maven.aliyun.com/repository/public' }
     maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
