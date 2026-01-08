@@ -18,6 +18,9 @@ from pydantic import BaseModel, Field
 # Import signaling router for WebRTC sessions
 from app.signaling import router as signaling_router
 
+# Import remote router for Remote MVP v0.1
+from app.remote import router as remote_router
+
 APP_ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = APP_ROOT / "afkzone2.db"
 
@@ -245,6 +248,9 @@ app = FastAPI(title="AFKZone vNext Backend (MVP)")
 
 # Mount signaling router for WebRTC session management
 app.include_router(signaling_router)
+
+# Mount remote router for Remote MVP v0.1 (devices, trusted, share, remote)
+app.include_router(remote_router)
 
 
 @app.on_event("startup")

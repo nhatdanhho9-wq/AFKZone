@@ -12,6 +12,7 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 import secrets
 import time
 from datetime import datetime, timezone
@@ -211,8 +212,19 @@ session_store = SessionStore()
 
 # ==================== TURN CREDENTIALS ====================
 
-# Mock TURN config for MVP
-TURN_SECRET = "mock-turn-secret-change-in-production"
+# TURN config for MVP
+# NOTE: For clean VPS deployments, set AFK_TURN_PUBLIC_HOST or AFK_TURN_URLS so clients
+# don't depend on any pre-existing DNS like turn.afkzone.cloud.
+TURN_SECRET = os.getenv("AFK_TURN_SECRET", "mock-for-dev")  # TODO: must be set in production
+
+# Optional: explicit comma-separated TURN URLs (highest priority), e.g.
+#   AFK_TURN_URLS="turn:171.253.168.44:3478,turn:171.253.168.44:3478?transport=tcp"
+TURN_URLS_ENV = os.getenv("AFK_TURN_URLS", "").strip()
+
+# Optional: public host/ip for TURN, used to construct default URLs.
+TURN_PUBLIC_HOST = os.getenv("AFK_TURN_PUBLIC_HOST", "").strip()
+
+# Fallback (legacy) mapping if neither env var is set.
 TURN_SERVERS = {
     "default": "turn.afkzone.cloud",
     "vn": "turn-vn.afkzone.cloud",
@@ -231,10 +243,20 @@ def mint_turn_credentials(session_id: str, region: str = "default") -> TurnCrede
         hashlib.sha1
     ).digest()
     
-    turn_server = TURN_SERVERS.get(region, TURN_SERVERS["default"])
-    
+    # Resolve TURN URLs in priority order:
+    #  1) AFK_TURN_URLS (explicit)
+    #  2) AFK_TURN_PUBLIC_HOST (construct)
+    #  3) TURN_SERVERS mapping (fallback)
+    if TURN_URLS_ENV:
+        urls = [u.strip() for u in TURN_URLS_ENV.split(",") if u.strip()]
+    elif TURN_PUBLIC_HOST:
+        urls = [f"turn:{TURN_PUBLIC_HOST}:3478", f"turn:{TURN_PUBLIC_HOST}:3478?transport=tcp"]
+    else:
+        turn_server = TURN_SERVERS.get(region, TURN_SERVERS["default"])
+        urls = [f"turn:{turn_server}:3478", f"turn:{turn_server}:3478?transport=tcp"]
+
     return TurnCredentials(
-        urls=[f"turn:{turn_server}:3478", f"turn:{turn_server}:3478?transport=tcp"],
+        urls=urls,
         username=username,
         credential=base64.b64encode(password).decode(),
         ttl=ttl,
