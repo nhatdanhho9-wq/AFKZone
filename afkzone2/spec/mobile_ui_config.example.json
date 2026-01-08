@@ -1,0 +1,68 @@
+{
+  "payload": {
+    "schema_version": 1,
+    "revision": 1,
+    "issued_at": "2026-01-07T00:00:00Z",
+    "ttl_seconds": 300,
+    "kill_switch": false,
+    "tabs": [
+      { "id": "device", "label": "Device", "icon": "tab_device", "visible": true, "route_type": "tab_device" },
+      { "id": "discover", "label": "Discover", "icon": "tab_discover", "visible": true, "route_type": "tab_discover" },
+      { "id": "purchase", "label": "Purchase", "icon": "tab_purchase", "visible": true, "route_type": "tab_purchase" },
+      { "id": "me", "label": "Me", "icon": "tab_me", "visible": true, "route_type": "tab_me" }
+    ],
+    "routes": [
+      { "id": "route_user_guide", "route_type": "screen_webview", "params": { "url": "https://example.com/user-guide", "title": "User Guide" } }
+    ],
+    "actions": [
+      { "id": "qa_recent", "label": "Recent", "icon": "recent", "action_key": "open_recent" },
+      { "id": "qa_fav", "label": "Favorite", "icon": "favorite", "action_key": "open_favorites" },
+      { "id": "qa_share", "label": "Share", "icon": "share_screen", "action_key": "share_screen_start", "gate": { "requires_auth": false } },
+      { "id": "me_orders", "label": "Orders", "icon": "orders", "action_key": "open_orders", "gate": { "requires_auth": true } },
+      { "id": "me_user_guide", "label": "User Guide", "icon": "user_guide", "action_key": "open_route", "params": { "route_id": "route_user_guide" } }
+    ],
+    "content": {
+      "device": {
+        "quick_action_ids": ["qa_recent", "qa_fav", "qa_share"]
+      },
+      "discover": {
+        "sections": [
+          {
+            "id": "news",
+            "title": "News",
+            "cards": [
+              {
+                "id": "card_1",
+                "title": "Welcome",
+                "subtitle": "Start here",
+                "image_url": "https://example.com/img.png",
+                "action_id": "me_user_guide"
+              }
+            ]
+          }
+        ]
+      },
+      "purchase": {
+        "tiers": [
+          { "id": "uvip", "label": "UVIP" },
+          { "id": "gvip", "label": "GVIP" },
+          { "id": "kvip", "label": "KVIP" },
+          { "id": "mvip", "label": "MVIP" }
+        ],
+        "regions": [
+          { "code": "sg", "label": "Singapore", "probe_host": "ping-sg.example.com" },
+          { "code": "th", "label": "Thailand", "probe_host": "ping-th.example.com" }
+        ]
+      },
+      "me": {
+        "menu_action_ids": ["me_orders", "me_user_guide"]
+      }
+    }
+  },
+  "signature": {
+    "alg": "ed25519",
+    "key_id": "example-dev-key",
+    "sig": "BASE64_SIGNATURE_OVER_CANONICAL_PAYLOAD"
+  }
+}
+

@@ -1,0 +1,15 @@
+{
+  "python_requirements": [
+    "fastapi",
+    "uvicorn",
+    "pydantic",
+    "pynacl"
+  ],
+  "flutter_pubspec": [
+    "flutter",
+    "http",
+    "shared_preferences",
+    "cryptography"
+  ]
+}
+

@@ -1,0 +1,210 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://afkzone.example/schemas/mobile_ui_config.schema.json",
+  "title": "AFKZoneMobileUiConfigEnvelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["payload", "signature"],
+  "properties": {
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "revision", "issued_at", "ttl_seconds", "tabs", "routes", "actions"],
+      "properties": {
+        "schema_version": { "type": "integer", "minimum": 1 },
+        "revision": { "type": "integer", "minimum": 1, "description": "Monotonic revision for rollback/audit." },
+        "issued_at": { "type": "string", "format": "date-time" },
+        "ttl_seconds": { "type": "integer", "minimum": 30, "maximum": 86400 },
+        "kill_switch": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, client falls back to baked-in default config."
+        },
+        "tabs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/tab" }
+        },
+        "routes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/route" }
+        },
+        "actions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/action" }
+        },
+        "content": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "discover": { "$ref": "#/$defs/discover" },
+            "purchase": { "$ref": "#/$defs/purchase" },
+            "me": { "$ref": "#/$defs/me" },
+            "device": { "$ref": "#/$defs/device" }
+          }
+        }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alg", "key_id", "sig"],
+      "properties": {
+        "alg": { "type": "string", "enum": ["ed25519"] },
+        "key_id": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "sig": { "type": "string", "minLength": 16, "description": "Base64 signature over canonical JSON(payload)." }
+      }
+    }
+  },
+  "$defs": {
+    "icon": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "Client-resolved icon key (no remote SVG)."
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requires_auth": { "type": "boolean", "default": false },
+        "requires_entitlement": { "type": "boolean", "default": false },
+        "requires_trust": { "type": "boolean", "default": false }
+      }
+    },
+    "tab": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "icon", "visible", "route_type"],
+      "properties": {
+        "id": { "type": "string", "enum": ["device", "discover", "purchase", "me"] },
+        "label": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "icon": { "$ref": "#/$defs/icon" },
+        "visible": { "type": "boolean" },
+        "route_type": { "type": "string", "enum": ["tab_device", "tab_discover", "tab_purchase", "tab_me"] }
+      }
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "route_type"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "route_type": {
+          "type": "string",
+          "enum": [
+            "tab_device",
+            "tab_discover",
+            "tab_purchase",
+            "tab_me",
+            "screen_orders",
+            "screen_redeem",
+            "screen_net_check",
+            "screen_user_guide",
+            "screen_webview"
+          ]
+        },
+        "params": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "icon", "action_key"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "label": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "icon": { "$ref": "#/$defs/icon" },
+        "action_key": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "params": { "type": "object", "additionalProperties": true },
+        "gate": { "$ref": "#/$defs/gate" }
+      }
+    },
+    "discover": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "title", "cards"],
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "cards": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["id", "title", "image_url", "action_id"],
+                  "properties": {
+                    "id": { "type": "string" },
+                    "title": { "type": "string" },
+                    "subtitle": { "type": "string" },
+                    "image_url": { "type": "string", "format": "uri" },
+                    "action_id": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "purchase": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tiers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "label"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1, "maxLength": 32 },
+              "label": { "type": "string", "minLength": 1, "maxLength": 32 }
+            }
+          }
+        },
+        "regions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["code", "label", "probe_host"],
+            "properties": {
+              "code": { "type": "string", "minLength": 2, "maxLength": 16 },
+              "label": { "type": "string", "minLength": 1, "maxLength": 32 },
+              "probe_host": { "type": "string", "minLength": 1, "maxLength": 255 }
+            }
+          }
+        }
+      }
+    },
+    "me": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "menu_action_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "device": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "quick_action_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}
+

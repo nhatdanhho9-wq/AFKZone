@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AFKZone Admin (MVP)</title>
+    <style>
+      :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+      body { margin: 0; background: #0b1220; color: #e6edf3; }
+      header { padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.08); display:flex; align-items:center; justify-content:space-between;}
+      .wrap { max-width: 1100px; margin: 0 auto; padding: 20px; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+      .card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 14px; }
+      textarea, input { width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.25); color: #e6edf3; border: 1px solid rgba(255,255,255,0.14); border-radius: 10px; padding: 10px; }
+      button { background: #2563eb; border: 0; color: white; padding: 10px 12px; border-radius: 10px; cursor: pointer; }
+      button.secondary { background: rgba(255,255,255,0.10); }
+      button.danger { background: #dc2626; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 13px; }
+      .row { display:flex; gap:10px; align-items:center; }
+      .muted { color: rgba(230,237,243,0.65); font-size: 12px; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+      .status { padding: 8px 10px; border-radius: 10px; background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.25); }
+      .status.bad { background: rgba(220,38,38,0.12); border-color: rgba(220,38,38,0.25); }
+      @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <div style="font-weight:700;">AFKZone Admin (MVP)</div>
+        <div class="muted">Basic-auth protected. UI config is versioned + signed.</div>
+      </div>
+      <div id="health" class="status">loading...</div>
+    </header>
+
+    <div class="wrap">
+      <div class="grid">
+        <div class="card">
+          <h3 style="margin:0 0 10px 0;">Create UI Config Revision</h3>
+          <div class="muted">Paste <span class="mono">payload</span> JSON only. Server will set <span class="mono">revision</span> and sign.</div>
+          <div style="height:10px"></div>
+          <textarea id="payload" rows="18" spellcheck="false"></textarea>
+          <div style="height:10px"></div>
+          <div class="row">
+            <input id="comment" placeholder="comment (optional)" />
+            <button id="create">Create</button>
+          </div>
+          <div style="height:10px"></div>
+          <div id="createResult" class="muted"></div>
+        </div>
+
+        <div class="card">
+          <h3 style="margin:0 0 10px 0;">UI Config Revisions</h3>
+          <div class="row" style="justify-content:space-between;">
+            <div class="muted">Latest 50 revisions</div>
+            <button class="secondary" id="refresh">Refresh</button>
+          </div>
+          <div style="height:10px"></div>
+          <table>
+            <thead>
+              <tr><th>rev</th><th>created</th><th>by</th><th>comment</th><th>actions</th></tr>
+            </thead>
+            <tbody id="revs"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style="height:16px"></div>
+
+      <div class="grid">
+        <div class="card">
+          <h3 style="margin:0 0 10px 0;">Regions</h3>
+          <div class="muted">Used by Purchase (server selection) and config.</div>
+          <div style="height:10px"></div>
+          <div class="row">
+            <input id="r_code" placeholder="code (sg)" />
+            <input id="r_label" placeholder="label (Singapore)" />
+          </div>
+          <div style="height:10px"></div>
+          <div class="row">
+            <input id="r_probe" placeholder="probe_host (ping-sg.example.com)" />
+            <label class="muted" style="display:flex; gap:6px; align-items:center;">
+              <input id="r_default" type="checkbox" /> default
+            </label>
+            <button id="r_save">Save</button>
+          </div>
+          <div style="height:10px"></div>
+          <table>
+            <thead><tr><th>code</th><th>label</th><th>probe</th><th>default</th><th></th></tr></thead>
+            <tbody id="regions"></tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <h3 style="margin:0 0 10px 0;">Plans</h3>
+          <div class="muted">Purchase tiers/plans. Prices in cents.</div>
+          <div style="height:10px"></div>
+          <div class="row">
+            <input id="p_id" placeholder="plan_id (uvip_7d)" />
+            <input id="p_tier" placeholder="tier_id (uvip)" />
+          </div>
+          <div style="height:10px"></div>
+          <div class="row">
+            <input id="p_days" placeholder="duration_days (7)" />
+            <input id="p_price" placeholder="price_cents (269)" />
+            <input id="p_cur" placeholder="currency (USD)" />
+          </div>
+          <div style="height:10px"></div>
+          <div class="row">
+            <input id="p_disc" placeholder="discount_pct (25)" />
+            <label class="muted" style="display:flex; gap:6px; align-items:center;">
+              <input id="p_active" type="checkbox" checked /> active
+            </label>
+            <button id="p_save">Save</button>
+          </div>
+          <div style="height:10px"></div>
+          <table>
+            <thead><tr><th>plan</th><th>tier</th><th>days</th><th>price</th><th>disc</th><th>active</th><th></th></tr></thead>
+            <tbody id="plans"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style="height:16px"></div>
+
+      <div class="grid">
+        <div class="card">
+          <h3 style="margin:0 0 10px 0;">Notifications</h3>
+          <div class="row">
+            <input id="n_title" placeholder="title" />
+            <input id="n_link" placeholder="link_url (optional)" />
+          </div>
+          <div style="height:10px"></div>
+          <textarea id="n_msg" rows="5" placeholder="message"></textarea>
+          <div style="height:10px"></div>
+          <button id="n_add">Add</button>
+          <div style="height:10px"></div>
+          <table>
+            <thead><tr><th>id</th><th>title</th><th>created</th><th></th></tr></thead>
+            <tbody id="notifs"></tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <h3 style="margin:0 0 10px 0;">Discover</h3>
+          <div class="muted">Sections + cards. Cards reference an <span class="mono">action_id</span> from UI config.</div>
+          <div style="height:10px"></div>
+          <div class="row">
+            <input id="ds_id" placeholder="section_id (news)" />
+            <input id="ds_title" placeholder="section_title (News)" />
+            <button id="ds_save">Save section</button>
+          </div>
+          <div style="height:10px"></div>
+          <div class="row">
+            <input id="dc_id" placeholder="card_id (card_1)" />
+            <input id="dc_section" placeholder="section_id (news)" />
+          </div>
+          <div style="height:10px"></div>
+          <div class="row">
+            <input id="dc_title" placeholder="title" />
+            <input id="dc_action" placeholder="action_id (me_user_guide)" />
+          </div>
+          <div style="height:10px"></div>
+          <div class="row">
+            <input id="dc_image" placeholder="image_url" />
+          </div>
+          <div style="height:10px"></div>
+          <textarea id="dc_sub" rows="2" placeholder="subtitle (optional)"></textarea>
+          <div style="height:10px"></div>
+          <button id="dc_save">Save card</button>
+          <div style="height:10px"></div>
+          <div class="muted">Discover output (read-only):</div>
+          <pre id="discoverDump" class="mono" style="white-space:pre-wrap;"></pre>
+        </div>
+      </div>
+
+      <div style="height:16px"></div>
+
+      <div class="card">
+        <h3 style="margin:0 0 10px 0;">Audit Log</h3>
+        <div class="row" style="justify-content:space-between;">
+          <div class="muted">Latest 200 actions</div>
+          <button class="secondary" id="refreshAudit">Refresh</button>
+        </div>
+        <div style="height:10px"></div>
+        <table>
+          <thead><tr><th>ts</th><th>actor</th><th>action</th><th>entity</th><th>detail</th></tr></thead>
+          <tbody id="audit"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const setHealth = (ok, text) => {
+        const el = $("health");
+        el.textContent = text;
+        el.className = ok ? "status" : "status bad";
+      };
+
+      async function api(path, opts) {
+        const res = await fetch(path, opts);
+        if (!res.ok) {
+          const t = await res.text();
+          throw new Error(`${res.status} ${t}`);
+        }
+        return res.json();
+      }
+
+      async function refreshHealth() {
+        try {
+          const d = await api("/health");
+          setHealth(true, `healthy · ${d.ts}`);
+        } catch (e) {
+          setHealth(false, `down`);
+        }
+      }
+
+      async function refreshRevs() {
+        const d = await api("/admin/api/ui-configs");
+        $("revs").innerHTML = d.items.map(r => `
+          <tr>
+            <td class="mono">${r.revision}</td>
+            <td class="mono">${r.created_at}</td>
+            <td>${r.created_by}</td>
+            <td>${r.comment || ""}</td>
+            <td>
+              <button class="secondary" onclick="viewRev(${r.revision})">View</button>
+              <button class="danger" onclick="rollback(${r.revision})">Rollback</button>
+            </td>
+          </tr>
+        `).join("");
+      }
+
+      async function refreshRegions() {
+        const d = await api("/admin/api/regions");
+        $("regions").innerHTML = d.regions.map(r => `
+          <tr>
+            <td class="mono">${r.code}</td>
+            <td>${r.label}</td>
+            <td class="mono">${r.probe_host}</td>
+            <td>${r.is_default ? "yes" : ""}</td>
+            <td><button class="danger" onclick="delRegion('${r.code}')">Delete</button></td>
+          </tr>
+        `).join("");
+      }
+
+      async function saveRegion() {
+        const code = $("r_code").value.trim();
+        const label = $("r_label").value.trim();
+        const probe_host = $("r_probe").value.trim();
+        const is_default = $("r_default").checked;
+        if (!code || !label || !probe_host) return alert("Missing fields");
+        await api("/admin/api/regions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code, label, probe_host, is_default }),
+        });
+        await refreshRegions();
+        await refreshAudit();
+      }
+
+      async function delRegion(code) {
+        if (!confirm(`Delete region ${code}?`)) return;
+        await api(`/admin/api/regions/${code}`, { method: "DELETE" });
+        await refreshRegions();
+        await refreshAudit();
+      }
+
+      async function refreshPlans() {
+        const d = await api("/admin/api/plans");
+        $("plans").innerHTML = d.plans.map(p => `
+          <tr>
+            <td class="mono">${p.plan_id}</td>
+            <td class="mono">${p.tier_id}</td>
+            <td>${p.duration_days}</td>
+            <td>${p.price_cents} ${p.currency}</td>
+            <td>${p.discount_pct}%</td>
+            <td>${p.is_active ? "yes" : ""}</td>
+            <td><button class="danger" onclick="delPlan('${p.plan_id}')">Delete</button></td>
+          </tr>
+        `).join("");
+      }
+
+      async function savePlan() {
+        const plan_id = $("p_id").value.trim();
+        const tier_id = $("p_tier").value.trim();
+        const duration_days = parseInt($("p_days").value.trim(), 10);
+        const price_cents = parseInt($("p_price").value.trim(), 10);
+        const currency = $("p_cur").value.trim() || "USD";
+        const discount_pct = parseInt($("p_disc").value.trim() || "0", 10);
+        const is_active = $("p_active").checked;
+        if (!plan_id || !tier_id || !Number.isFinite(duration_days) || !Number.isFinite(price_cents)) {
+          return alert("Missing/invalid fields");
+        }
+        await api("/admin/api/plans", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ plan_id, tier_id, duration_days, price_cents, currency, discount_pct, is_active }),
+        });
+        await refreshPlans();
+        await refreshAudit();
+      }
+
+      async function delPlan(plan_id) {
+        if (!confirm(`Delete plan ${plan_id}?`)) return;
+        await api(`/admin/api/plans/${plan_id}`, { method: "DELETE" });
+        await refreshPlans();
+        await refreshAudit();
+      }
+
+      async function refreshNotifs() {
+        const d = await api("/public/notifications");
+        $("notifs").innerHTML = d.notifications.map(n => `
+          <tr>
+            <td class="mono">${n.id}</td>
+            <td>${n.title}</td>
+            <td class="mono">${n.created_at}</td>
+            <td><button class="danger" onclick="delNotif(${n.id})">Delete</button></td>
+          </tr>
+        `).join("");
+      }
+
+      async function addNotif() {
+        const title = $("n_title").value.trim();
+        const message = $("n_msg").value.trim();
+        const link_url = $("n_link").value.trim() || null;
+        if (!title || !message) return alert("Missing fields");
+        await api("/admin/api/notifications", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title, message, link_url }),
+        });
+        $("n_title").value = ""; $("n_msg").value = ""; $("n_link").value = "";
+        await refreshNotifs();
+        await refreshAudit();
+      }
+
+      async function delNotif(id) {
+        if (!confirm(`Delete notification ${id}?`)) return;
+        await api(`/admin/api/notifications/${id}`, { method: "DELETE" });
+        await refreshNotifs();
+        await refreshAudit();
+      }
+
+      async function refreshDiscoverDump() {
+        const d = await api("/public/discover");
+        $("discoverDump").textContent = JSON.stringify(d, null, 2);
+      }
+
+      async function saveDiscoverSection() {
+        const id = $("ds_id").value.trim();
+        const title = $("ds_title").value.trim();
+        if (!id || !title) return alert("Missing fields");
+        await api("/admin/api/discover/sections", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, title }),
+        });
+        await refreshDiscoverDump();
+        await refreshAudit();
+      }
+
+      async function saveDiscoverCard() {
+        const id = $("dc_id").value.trim();
+        const section_id = $("dc_section").value.trim();
+        const title = $("dc_title").value.trim();
+        const subtitle = $("dc_sub").value.trim() || null;
+        const image_url = $("dc_image").value.trim();
+        const action_id = $("dc_action").value.trim();
+        if (!id || !section_id || !title || !image_url || !action_id) return alert("Missing fields");
+        await api("/admin/api/discover/cards", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, section_id, title, subtitle, image_url, action_id }),
+        });
+        await refreshDiscoverDump();
+        await refreshAudit();
+      }
+
+      async function refreshAudit() {
+        const d = await api("/admin/api/audit");
+        $("audit").innerHTML = d.items.map(a => `
+          <tr>
+            <td class="mono">${a.ts}</td>
+            <td>${a.actor}</td>
+            <td>${a.action}</td>
+            <td class="mono">${a.entity_type}:${a.entity_id}</td>
+            <td class="mono">${JSON.stringify(a.detail || {})}</td>
+          </tr>
+        `).join("");
+      }
+
+      async function create() {
+        $("createResult").textContent = "";
+        let payload;
+        try {
+          payload = JSON.parse($("payload").value);
+        } catch (e) {
+          $("createResult").textContent = `Invalid JSON: ${e}`;
+          return;
+        }
+        const comment = $("comment").value || null;
+        try {
+          const d = await api("/admin/api/ui-configs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ payload, comment }),
+          });
+          $("createResult").textContent = `Created revision ${d.revision}`;
+          await refreshRevs();
+          await refreshAudit();
+        } catch (e) {
+          $("createResult").textContent = `Error: ${e}`;
+        }
+      }
+
+      async function viewRev(rev) {
+        try {
+          const d = await api(`/admin/api/ui-configs/${rev}`);
+          alert(JSON.stringify({ revision: d.revision, payload: d.payload, signature: d.signature }, null, 2));
+        } catch (e) {
+          alert(`Error: ${e}`);
+        }
+      }
+
+      async function rollback(rev) {
+        if (!confirm(`Rollback to revision ${rev}? This creates a NEW revision.`)) return;
+        try {
+          const d = await api(`/admin/api/ui-configs/${rev}/rollback`, { method: "POST" });
+          alert(`Created revision ${d.revision} (rollback_to ${d.rolled_back_to})`);
+          await refreshRevs();
+          await refreshAudit();
+        } catch (e) {
+          alert(`Error: ${e}`);
+        }
+      }
+
+      window.viewRev = viewRev;
+      window.rollback = rollback;
+      window.delRegion = delRegion;
+      window.delPlan = delPlan;
+      window.delNotif = delNotif;
+
+      $("create").addEventListener("click", create);
+      $("refresh").addEventListener("click", refreshRevs);
+      $("refreshAudit").addEventListener("click", refreshAudit);
+      $("r_save").addEventListener("click", saveRegion);
+      $("p_save").addEventListener("click", savePlan);
+      $("n_add").addEventListener("click", addNotif);
+      $("ds_save").addEventListener("click", saveDiscoverSection);
+      $("dc_save").addEventListener("click", saveDiscoverCard);
+
+      // Pre-fill payload with a minimal UG config template
+      $("payload").value = JSON.stringify({
+        schema_version: 1,
+        ttl_seconds: 300,
+        kill_switch: false,
+        tabs: [
+          { id: "device", label: "Device", icon: "tab_device", visible: true, route_type: "tab_device" },
+          { id: "discover", label: "Discover", icon: "tab_discover", visible: true, route_type: "tab_discover" },
+          { id: "purchase", label: "Purchase", icon: "tab_purchase", visible: true, route_type: "tab_purchase" },
+          { id: "me", label: "Me", icon: "tab_me", visible: true, route_type: "tab_me" }
+        ],
+        routes: [],
+        actions: [],
+        content: {
+          device: { quick_action_ids: [] },
+          discover: { sections: [] },
+          purchase: {},
+          me: { menu_action_ids: [] }
+        }
+      }, null, 2);
+
+      (async function boot() {
+        await refreshHealth();
+        await refreshRevs();
+        await refreshRegions();
+        await refreshPlans();
+        await refreshNotifs();
+        await refreshDiscoverDump();
+        await refreshAudit();
+        setInterval(refreshHealth, 15000);
+      })();
+    </script>
+  </body>
+</html>
+
