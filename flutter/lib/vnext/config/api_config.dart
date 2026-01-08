@@ -10,7 +10,7 @@ class ApiConfig {
   /// QA base URL (from Opus VNEXT_API_BASE)
   static const String _qaBaseUrl = const String.fromEnvironment(
     'VNEXT_API_BASE',
-    defaultValue: 'http://172.26.31.115:21121',
+    defaultValue: 'http://171.253.168.44',
   );
 
   /// Local development base URL

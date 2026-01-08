@@ -2,26 +2,50 @@
 
 ## Build with QA Environment
 
+## Prerequisite (Android/Gradle)
+
+This project requires **JDK 17+** for Android builds (AGP 8.x). If Gradle runs on Java 8/11, you will see errors like:
+
+- `No matching variant ... compatible with Java 8`
+- `Unsupported class file major version ...`
+
+On Windows PowerShell, set `JAVA_HOME` to JDK 17+ before building.
+
 ### Option 1: Using API_ENV build-define
 ```bash
 # Build APK for QA environment
-flutter build apk --debug --dart-define=API_ENV=qa
+AFK_VNEXT_ONLY=1 flutter build apk --debug -t lib/vnext/main_vnext.dart --dart-define=API_ENV=qa
 
 # Build APK with custom VNEXT_API_BASE
-flutter build apk --debug \
+AFK_VNEXT_ONLY=1 flutter build apk --debug -t lib/vnext/main_vnext.dart \
   --dart-define=API_ENV=qa \
   --dart-define=VNEXT_API_BASE=https://qa-api.afkzone.cloud
 ```
 
 ### Option 2: Using full URL override
 ```bash
-flutter build apk --debug \
+AFK_VNEXT_ONLY=1 flutter build apk --debug -t lib/vnext/main_vnext.dart \
   --dart-define=VNEXT_API_BASE=https://your-qa-server.com
 ```
 
 ### Option 3: Dev mode (hot reload)
 ```bash
-flutter run --dart-define=API_ENV=qa
+AFK_VNEXT_ONLY=1 flutter run -t lib/vnext/main_vnext.dart --dart-define=API_ENV=qa
+```
+
+---
+
+## Windows PowerShell (Copy/Paste)
+
+```powershell
+$env:AFK_VNEXT_ONLY="1"
+$env:JAVA_HOME="C:\\Program Files\\Java\\jdk-21"   # or jdk-17
+$env:Path="$env:JAVA_HOME\\bin;$env:Path"
+
+cd D:\rustdesk-dev\flutter
+flutter build apk --debug -t lib/vnext/main_vnext.dart `
+  --dart-define=API_ENV=qa `
+  --dart-define=VNEXT_API_BASE=http://172.26.31.115:21121
 ```
 
 ---
@@ -61,7 +85,7 @@ When app starts, check logs for:
 ### Build Command (Copy & Run)
 ```bash
 cd flutter
-flutter build apk --debug --dart-define=API_ENV=qa
+AFK_VNEXT_ONLY=1 flutter build apk --debug -t lib/vnext/main_vnext.dart --dart-define=API_ENV=qa
 ```
 
 ### APK Location

@@ -67,7 +67,7 @@ class DiscoverTab extends StatelessWidget {
       onTap: () {
         final action = config?.getActionById(card.actionId);
         if (action != null) {
-          ActionDispatcher.dispatch(context, action.actionKey, params: action.params);
+          VNextActionDispatcher.dispatch(context, action.actionKey, params: action.params);
         }
       },
       child: Container(

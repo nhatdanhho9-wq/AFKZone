@@ -77,7 +77,7 @@ class _PurchaseTabState extends State<PurchaseTab> with SingleTickerProviderStat
                       onSelected: (selected) {
                         if (selected) {
                           setState(() => _selectedRegion = r.code);
-                          ActionDispatcher.dispatch(
+                          VNextActionDispatcher.dispatch(
                             context,
                             'select_region',
                             params: {'region_code': r.code},
@@ -134,7 +134,7 @@ class _PurchaseTabState extends State<PurchaseTab> with SingleTickerProviderStat
             subtitle: Text('Region: ${_selectedRegion ?? 'Not selected'}'),
             trailing: ElevatedButton(
               onPressed: () {
-                ActionDispatcher.dispatch(
+                VNextActionDispatcher.dispatch(
                   context,
                   'buy_plan',
                   params: {'plan_id': plan['id'], 'region': _selectedRegion},

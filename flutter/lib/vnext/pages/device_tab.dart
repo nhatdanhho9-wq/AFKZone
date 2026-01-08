@@ -83,7 +83,7 @@ class _DeviceTabState extends State<DeviceTab> {
                         onPressed: () {
                           final remoteId = _remoteIdController.text.trim();
                           if (remoteId.isNotEmpty) {
-                            ActionDispatcher.dispatch(
+                            VNextActionDispatcher.dispatch(
                               context,
                               'connect_to_remote',
                               params: {'remote_id': remoteId},
@@ -126,7 +126,7 @@ class _DeviceTabState extends State<DeviceTab> {
 
   Widget _buildQuickAction(ActionConfig action) {
     return InkWell(
-      onTap: () => ActionDispatcher.dispatch(context, action.actionKey, params: action.params),
+      onTap: () => VNextActionDispatcher.dispatch(context, action.actionKey, params: action.params),
       borderRadius: BorderRadius.circular(12),
       child: Container(
         padding: const EdgeInsets.all(12),

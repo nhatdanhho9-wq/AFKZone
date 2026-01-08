@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import '../models/ui_config.dart';
 
 /// Action Dispatcher - Handles all action_key dispatch with gating
-class ActionDispatcher {
+class VNextActionDispatcher {
   /// Dispatch an action by action_key
   static void dispatch(
     BuildContext context,
@@ -15,7 +15,7 @@ class ActionDispatcher {
     // if (gate?.requiresAuth == true && !isLoggedIn) { showLoginPrompt(); return; }
     // if (gate?.requiresEntitlement == true && !hasEntitlement) { showPurchasePrompt(); return; }
 
-    print('[ActionDispatcher] $actionKey params=$params');
+    print('[VNextActionDispatcher] $actionKey params=$params');
 
     switch (actionKey) {
       // Device actions

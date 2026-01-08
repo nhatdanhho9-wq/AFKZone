@@ -93,7 +93,7 @@ class MeTab extends StatelessWidget {
                   ),
                   const SizedBox(height: 16),
                   ElevatedButton(
-                    onPressed: () => ActionDispatcher.dispatch(context, 'auth_login'),
+                    onPressed: () => VNextActionDispatcher.dispatch(context, 'auth_login'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.white,
                       foregroundColor: Colors.green,
@@ -117,7 +117,7 @@ class MeTab extends StatelessWidget {
             ListTile(
               leading: const Icon(Icons.logout, color: Colors.red),
               title: const Text('Logout', style: TextStyle(color: Colors.red)),
-              onTap: () => ActionDispatcher.dispatch(context, 'auth_logout'),
+              onTap: () => VNextActionDispatcher.dispatch(context, 'auth_logout'),
             ),
           ],
         ),
@@ -132,7 +132,7 @@ class MeTab extends StatelessWidget {
         leading: Icon(_getMenuIcon(action.icon), color: Colors.green),
         title: Text(action.label),
         trailing: const Icon(Icons.chevron_right),
-        onTap: () => ActionDispatcher.dispatch(context, action.actionKey, params: action.params),
+        onTap: () => VNextActionDispatcher.dispatch(context, action.actionKey, params: action.params),
       ),
     );
   }
