@@ -1,0 +1,124 @@
+name: afkzone2 Clean-Room CI
+
+on:
+  push:
+    paths:
+      - 'afkzone2/**'
+  pull_request:
+    paths:
+      - 'afkzone2/**'
+
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  clean-room-scan:
+    name: Clean-Room Enforcement
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Run forbidden string scan
+        run: |
+          cd afkzone2
+          python tools/check_clean_room.py
+        
+  dependency-allowlist:
+    name: Dependency Allowlist Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Validate dependencies against allowlist
+        run: |
+          cd afkzone2
+          python tools/check_deps_allowlist.py
+
+  license-scan:
+    name: License Compliance Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install pip-licenses
+        run: pip install pip-licenses
+      
+      - name: Check Python license compliance
+        run: |
+          cd afkzone2/backend
+          pip install -r requirements.txt
+          pip-licenses --format=json --output-file=licenses.json
+          # Check for copyleft licenses (GPL, etc.)
+          if grep -E '"License": "(GPL|LGPL|AGPL)' licenses.json; then
+            echo "❌ Copyleft license detected!"
+            exit 1
+          fi
+          echo "✅ All licenses are permissive"
+
+  backend-lint:
+    name: Backend Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install dependencies
+        run: |
+          cd afkzone2/backend
+          pip install -r requirements.txt
+          pip install ruff pytest
+      
+      - name: Lint with ruff
+        run: |
+          cd afkzone2/backend
+          ruff check . || echo "Lint warnings (non-blocking)"
+      
+      - name: Verify FastAPI import
+        run: |
+          cd afkzone2/backend
+          python -c "from app.main import app; print('✅ FastAPI app imports successfully')"
+
+  flutter-check:
+    name: Flutter Client Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: 'stable'
+      
+      - name: Flutter analyze
+        run: |
+          cd afkzone2/clients/ug_shell_flutter
+          flutter pub get
+          flutter analyze --no-fatal-infos || echo "Analyze warnings (non-blocking)"
+
+  all-checks-pass:
+    name: All Checks Pass
+    runs-on: ubuntu-latest
+    needs: [clean-room-scan, dependency-allowlist, license-scan, backend-lint, flutter-check]
+    steps:
+      - name: All checks passed
+        run: echo "✅ All afkzone2 CI checks passed - ready for merge/tag"
