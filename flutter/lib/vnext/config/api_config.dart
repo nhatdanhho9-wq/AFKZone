@@ -7,11 +7,17 @@ class ApiConfig {
   /// Staging base URL
   static const String _stagingBaseUrl = 'https://staging-api.afkzone.cloud';
 
+  /// QA base URL (from Opus VNEXT_API_BASE)
+  static const String _qaBaseUrl = const String.fromEnvironment(
+    'VNEXT_API_BASE',
+    defaultValue: 'https://qa-api.afkzone.cloud',
+  );
+
   /// Local development base URL
   static const String _localBaseUrl = 'http://localhost:8000';
 
   /// Current environment (can be set via build-define)
-  /// Options: 'production', 'staging', 'local'
+  /// Options: 'production', 'staging', 'qa', 'local'
   static String _environment = const String.fromEnvironment(
     'API_ENV',
     defaultValue: 'production',
@@ -30,6 +36,8 @@ class ApiConfig {
     switch (_environment) {
       case 'staging':
         return _stagingBaseUrl;
+      case 'qa':
+        return _qaBaseUrl;
       case 'local':
         return _localBaseUrl;
       case 'production':
