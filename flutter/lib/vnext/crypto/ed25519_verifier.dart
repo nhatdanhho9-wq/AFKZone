@@ -12,8 +12,10 @@ class Ed25519Verifier {
   /// In production, these should be baked into the app
   /// Format: key_id → base64-encoded public key (32 bytes)
   static final Map<String, String> _pinnedKeys = {
-    // Development key (will be replaced by Opus)
-    'afkzone-dev-2026': 'PLACEHOLDER_DEV_KEY_BASE64_32_BYTES_HERE',
+    // Development key from Opus (VNEXT QA env)
+    'dev-key': 'O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik=',
+    // Legacy placeholder keys (for backwards compatibility)
+    'afkzone-dev-2026': 'O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik=',
     // Production key (to be added when Opus provides)
     'afkzone-prod-2026': 'PLACEHOLDER_PROD_KEY_BASE64_32_BYTES_HERE',
   };

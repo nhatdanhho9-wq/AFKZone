@@ -10,7 +10,7 @@ class ApiConfig {
   /// QA base URL (from Opus VNEXT_API_BASE)
   static const String _qaBaseUrl = const String.fromEnvironment(
     'VNEXT_API_BASE',
-    defaultValue: 'https://qa-api.afkzone.cloud',
+    defaultValue: 'http://172.26.31.115:21121',
   );
 
   /// Local development base URL
