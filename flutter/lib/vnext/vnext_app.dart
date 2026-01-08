@@ -3,10 +3,13 @@ import 'pages/device_tab.dart';
 import 'pages/discover_tab.dart';
 import 'pages/purchase_tab.dart';
 import 'pages/me_tab.dart';
+import 'pages/login_screen.dart';
 import 'models/ui_config.dart';
 import 'services/config_service.dart';
+import 'services/auth_service.dart';
+import 'services/device_service.dart';
 
-/// vNext App - Server-driven mobile UI
+/// vNext App - Server-driven mobile UI with auth flow
 /// Tabs rendered from /public/mobile-ui-config
 class VNextApp extends StatefulWidget {
   const VNextApp({Key? key}) : super(key: key);
@@ -19,30 +22,64 @@ class _VNextAppState extends State<VNextApp> {
   int _currentIndex = 0;
   UiConfig? _config;
   bool _isLoading = true;
+  bool _isLoggedIn = false;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    _loadConfig();
+    _checkAuth();
   }
 
-  Future<void> _loadConfig() async {
+  Future<void> _checkAuth() async {
     setState(() => _isLoading = true);
+    final loggedIn = await AuthService.isLoggedIn();
+    
+    if (loggedIn) {
+      await _initializeApp();
+    } else {
+      setState(() {
+        _isLoggedIn = false;
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _initializeApp() async {
     try {
+      // Load config
       final config = await ConfigService.loadConfig();
+      
+      // Register device and start heartbeat
+      await DeviceService.registerDevice(deviceName: 'vNext-Mobile');
+      DeviceService.startHeartbeat();
+      
       setState(() {
         _config = config;
+        _isLoggedIn = true;
         _isLoading = false;
       });
     } catch (e) {
       setState(() {
         _error = e.toString();
         _isLoading = false;
-        // Use baked-in defaults on error
         _config = UiConfig.defaults();
+        _isLoggedIn = true;
       });
     }
+  }
+
+  void _onLoginSuccess() async {
+    await _initializeApp();
+  }
+
+  void _onLogout() async {
+    DeviceService.stopHeartbeat();
+    await AuthService.logout();
+    setState(() {
+      _isLoggedIn = false;
+      _config = null;
+    });
   }
 
   List<TabConfig> get _visibleTabs {
@@ -59,7 +96,7 @@ class _VNextAppState extends State<VNextApp> {
       case 'purchase':
         return PurchaseTab(config: _config);
       case 'me':
-        return MeTab(config: _config);
+        return MeTab(config: _config, onLogout: _onLogout);
       default:
         return Center(child: Text('Unknown tab: $tabId'));
     }
@@ -84,8 +121,22 @@ class _VNextAppState extends State<VNextApp> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(color: Colors.green),
+              SizedBox(height: 16),
+              Text('Loading...'),
+            ],
+          ),
+        ),
       );
+    }
+
+    // Show login if not logged in
+    if (!_isLoggedIn) {
+      return LoginScreen(onLoginSuccess: _onLoginSuccess);
     }
 
     final tabs = _visibleTabs;
@@ -100,7 +151,7 @@ class _VNextAppState extends State<VNextApp> {
               Text('Config Error: ${_error ?? "No tabs configured"}'),
               const SizedBox(height: 16),
               ElevatedButton(
-                onPressed: _loadConfig,
+                onPressed: _checkAuth,
                 child: const Text('Retry'),
               ),
             ],
@@ -126,5 +177,11 @@ class _VNextAppState extends State<VNextApp> {
         )).toList(),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    DeviceService.stopHeartbeat();
+    super.dispose();
   }
 }

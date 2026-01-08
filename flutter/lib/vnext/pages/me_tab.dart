@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/ui_config.dart';
 import '../actions/action_dispatcher.dart';
+import '../services/auth_service.dart';
 
 /// Me Tab - Account hub with server-driven menu
 class MeTab extends StatelessWidget {
   final UiConfig? config;
+  final VoidCallback? onLogout;
 
-  const MeTab({Key? key, this.config}) : super(key: key);
+  const MeTab({Key? key, this.config, this.onLogout}) : super(key: key);
 
   List<ActionConfig> get _menuActions {
     final cfg = config;
@@ -117,7 +119,7 @@ class MeTab extends StatelessWidget {
             ListTile(
               leading: const Icon(Icons.logout, color: Colors.red),
               title: const Text('Logout', style: TextStyle(color: Colors.red)),
-              onTap: () => VNextActionDispatcher.dispatch(context, 'auth_logout'),
+              onTap: onLogout,
             ),
           ],
         ),

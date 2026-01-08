@@ -1,0 +1,213 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
+import '../services/webrtc_service.dart';
+
+/// Remote Session Screen for Remote Preview v0.1
+/// Displays remote video stream from host
+class RemoteSessionScreen extends StatefulWidget {
+  final String sessionId;
+  final bool isHost;
+
+  const RemoteSessionScreen({
+    Key? key,
+    required this.sessionId,
+    this.isHost = false,
+  }) : super(key: key);
+
+  @override
+  State<RemoteSessionScreen> createState() => _RemoteSessionScreenState();
+}
+
+class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
+  WebRTCService? _webrtcService;
+  RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
+  bool _isConnecting = true;
+  bool _isConnected = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _initSession();
+  }
+
+  Future<void> _initSession() async {
+    await _remoteRenderer.initialize();
+    
+    _webrtcService = WebRTCService(
+      sessionId: widget.sessionId,
+      isHost: widget.isHost,
+    );
+
+    _webrtcService!.onRemoteStream = (stream) {
+      setState(() {
+        _remoteRenderer.srcObject = stream;
+        _isConnected = true;
+        _isConnecting = false;
+      });
+    };
+
+    _webrtcService!.onConnectionState = (state) {
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+        setState(() {
+          _isConnected = true;
+          _isConnecting = false;
+        });
+      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
+                 state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+        setState(() {
+          _isConnected = false;
+          _error = 'Connection failed';
+        });
+      }
+    };
+
+    _webrtcService!.onError = (error) {
+      setState(() {
+        _error = error;
+        _isConnecting = false;
+      });
+    };
+
+    // Initialize WebRTC
+    final initialized = await _webrtcService!.initialize();
+    if (!initialized) {
+      setState(() {
+        _error = 'Failed to initialize WebRTC';
+        _isConnecting = false;
+      });
+      return;
+    }
+
+    // Connect signaling
+    final connected = await _webrtcService!.connectSignaling();
+    if (!connected) {
+      setState(() {
+        _error = 'Failed to connect signaling';
+        _isConnecting = false;
+      });
+      return;
+    }
+
+    // Start as viewer
+    if (!widget.isHost) {
+      await _webrtcService!.startViewer();
+    }
+  }
+
+  Future<void> _disconnect() async {
+    await _webrtcService?.disconnect();
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _webrtcService?.disconnect();
+    _remoteRenderer.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: Text('Session: ${widget.sessionId.substring(0, 8)}...'),
+        actions: [
+          // Connection status indicator
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: Row(
+              children: [
+                Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _isConnected 
+                        ? Colors.green 
+                        : (_isConnecting ? Colors.orange : Colors.red),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  _isConnected ? 'Connected' : (_isConnecting ? 'Connecting...' : 'Disconnected'),
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      body: Stack(
+        children: [
+          // Remote video
+          if (_isConnected)
+            RTCVideoView(
+              _remoteRenderer,
+              objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+            )
+          else if (_isConnecting)
+            const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(color: Colors.green),
+                  SizedBox(height: 16),
+                  Text(
+                    'Connecting to remote device...',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ],
+              ),
+            )
+          else if (_error != null)
+            Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error_outline, color: Colors.red, size: 48),
+                  const SizedBox(height: 16),
+                  Text(
+                    _error!,
+                    style: const TextStyle(color: Colors.white),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () {
+                      setState(() {
+                        _error = null;
+                        _isConnecting = true;
+                      });
+                      _initSession();
+                    },
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            ),
+
+          // Disconnect button
+          Positioned(
+            bottom: 32,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: FloatingActionButton.extended(
+                onPressed: _disconnect,
+                backgroundColor: Colors.red,
+                icon: const Icon(Icons.call_end),
+                label: const Text('Disconnect'),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
