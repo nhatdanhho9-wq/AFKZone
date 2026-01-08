@@ -2,33 +2,42 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/ui_config.dart';
+import '../config/api_config.dart';
+import '../crypto/ed25519_verifier.dart';
 
 /// Config Service for server-driven UI
 /// Handles: fetch, cache, signature verify, LKG fallback, TTL refresh
 class ConfigService {
-  static const String _baseUrl = 'https://api.afkzone.cloud';
-  static const String _configEndpoint = '/public/mobile-ui-config';
   static const String _lkgKey = 'mobile_ui_config:lkg';
   static const String _revisionKey = 'mobile_ui_config:revision';
+  static const String _lastFetchKey = 'mobile_ui_config:last_fetch';
 
   /// Load config with verification and caching
   static Future<UiConfig> loadConfig() async {
+    final timestamp = DateTime.now().toIso8601String();
+    print('[ConfigService] [$timestamp] Loading config from ${ApiConfig.configEndpoint}');
+
     try {
       // Try to fetch from server
       final response = await http.get(
-        Uri.parse('$_baseUrl$_configEndpoint'),
+        Uri.parse(ApiConfig.configEndpoint),
         headers: {'Cache-Control': 'no-cache'},
       ).timeout(Duration(seconds: 15));
+
+      print('[ConfigService] Response status: ${response.statusCode}');
 
       if (response.statusCode == 200) {
         final envelope = json.decode(utf8.decode(response.bodyBytes));
         return await _processEnvelope(envelope);
+      } else {
+        print('[ConfigService] Non-200 response: ${response.statusCode}');
       }
     } catch (e) {
       print('[ConfigService] Fetch error: $e');
     }
 
     // Fallback to LKG
+    print('[ConfigService] Falling back to LKG');
     return await _loadLkg();
   }
 
@@ -36,59 +45,68 @@ class ConfigService {
   static Future<UiConfig> _processEnvelope(Map<String, dynamic> envelope) async {
     final payload = envelope['payload'];
     final signature = envelope['signature'];
+    final timestamp = DateTime.now().toIso8601String();
 
     if (payload == null) {
+      print('[ConfigService] [$timestamp] Missing payload in envelope');
       throw Exception('Missing payload');
     }
 
-    // 1. Verify signature (TODO: implement Ed25519)
+    // 1. Verify signature using Ed25519
     if (signature != null) {
-      final isValid = await _verifySignature(payload, signature);
+      print('[ConfigService] [$timestamp] Verifying signature...');
+      final isValid = await Ed25519Verifier.verify(
+        payload: payload,
+        signature: signature,
+      );
+      
       if (!isValid) {
-        print('[ConfigService] Invalid signature - using LKG');
+        print('[ConfigService] [$timestamp] INVALID SIGNATURE - rejecting update, using LKG');
         return await _loadLkg();
       }
+      print('[ConfigService] [$timestamp] Signature VALID');
+    } else {
+      print('[ConfigService] [$timestamp] WARNING: No signature present');
     }
 
     final config = UiConfig.fromJson(payload);
 
     // 2. Check kill_switch
     if (config.killSwitch) {
-      print('[ConfigService] Kill switch active - using defaults');
+      print('[ConfigService] [$timestamp] Kill switch ACTIVE - using baked-in defaults');
       return UiConfig.defaults();
     }
 
-    // 3. Enforce monotonic revision
+    // 3. Verify issued_at not in far future (allow ±5 min clock skew)
+    try {
+      final issuedAt = DateTime.parse(config.issuedAt);
+      final now = DateTime.now();
+      final maxFuture = now.add(Duration(minutes: 5));
+      if (issuedAt.isAfter(maxFuture)) {
+        print('[ConfigService] [$timestamp] issued_at too far in future: ${config.issuedAt}');
+        return await _loadLkg();
+      }
+    } catch (e) {
+      print('[ConfigService] [$timestamp] Invalid issued_at format: ${config.issuedAt}');
+    }
+
+    // 4. Enforce monotonic revision
     final prefs = await SharedPreferences.getInstance();
     final cachedRevision = prefs.getInt(_revisionKey) ?? 0;
     if (config.revision < cachedRevision) {
-      print('[ConfigService] Revision rollback detected - using LKG');
+      print('[ConfigService] [$timestamp] Revision ROLLBACK detected: ${config.revision} < $cachedRevision');
       return await _loadLkg();
     }
+    print('[ConfigService] [$timestamp] Revision check OK: ${config.revision} >= $cachedRevision');
 
-    // 4. Save as LKG
+    // 5. Check TTL (for refresh scheduling)
+    print('[ConfigService] [$timestamp] TTL: ${config.ttlSeconds} seconds');
+
+    // 6. Save as LKG
     await _saveLkg(payload, config.revision);
 
+    print('[ConfigService] [$timestamp] Config loaded successfully: revision=${config.revision}, tabs=${config.tabs.length}');
     return config;
-  }
-
-  /// Verify Ed25519 signature
-  static Future<bool> _verifySignature(Map<String, dynamic> payload, Map<String, dynamic> signature) async {
-    // TODO: Implement Ed25519 verification
-    // For now, accept all signatures (mock mode)
-    final alg = signature['alg'];
-    final keyId = signature['key_id'];
-    final sig = signature['sig'];
-
-    if (alg != 'ed25519') {
-      print('[ConfigService] Unknown signature algorithm: $alg');
-      return false;
-    }
-
-    // In production: verify sig over canonical JSON of payload
-    // For now: trust dev signatures
-    print('[ConfigService] Signature verification (mock): key_id=$keyId');
-    return true;
   }
 
   /// Save config to LKG cache
@@ -96,6 +114,7 @@ class ConfigService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_lkgKey, json.encode(payload));
     await prefs.setInt(_revisionKey, revision);
+    await prefs.setString(_lastFetchKey, DateTime.now().toIso8601String());
     print('[ConfigService] Saved LKG revision $revision');
   }
 
@@ -103,18 +122,19 @@ class ConfigService {
   static Future<UiConfig> _loadLkg() async {
     final prefs = await SharedPreferences.getInstance();
     final lkgJson = prefs.getString(_lkgKey);
+    final timestamp = DateTime.now().toIso8601String();
 
     if (lkgJson != null) {
       try {
         final payload = json.decode(lkgJson);
-        print('[ConfigService] Loaded LKG revision ${payload['revision']}');
+        print('[ConfigService] [$timestamp] Loaded LKG revision ${payload['revision']}');
         return UiConfig.fromJson(payload);
       } catch (e) {
-        print('[ConfigService] LKG parse error: $e');
+        print('[ConfigService] [$timestamp] LKG parse error: $e');
       }
     }
 
-    print('[ConfigService] Using baked-in defaults');
+    print('[ConfigService] [$timestamp] Using baked-in defaults (no LKG available)');
     return UiConfig.defaults();
   }
 
@@ -123,5 +143,19 @@ class ConfigService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_lkgKey);
     await prefs.remove(_revisionKey);
+    await prefs.remove(_lastFetchKey);
+    print('[ConfigService] Cache cleared');
+  }
+
+  /// Get cached revision number
+  static Future<int> getCachedRevision() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_revisionKey) ?? 0;
+  }
+
+  /// Get last fetch timestamp
+  static Future<String?> getLastFetchTime() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_lastFetchKey);
   }
 }
