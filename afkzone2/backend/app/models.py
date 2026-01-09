@@ -52,6 +52,17 @@ class DeviceInfo(BaseModel):
     online: bool
     last_seen: Optional[str] = None
     unattended_mode: str = "disabled"
+    # Metadata (per-account personalization)
+    display_name: Optional[str] = None  # User-friendly name
+    is_favorite: bool = False
+    always_relay: bool = False  # Force TURN relay
+
+
+class DeviceUpdateRequest(BaseModel):
+    """Update device metadata (PATCH /devices/{id})."""
+    display_name: Optional[str] = Field(default=None, max_length=128)
+    is_favorite: Optional[bool] = None
+    always_relay: Optional[bool] = None
 
 
 class DeviceListResponse(BaseModel):
@@ -59,12 +70,17 @@ class DeviceListResponse(BaseModel):
 
 
 class HeartbeatRequest(BaseModel):
-    pass  # Just presence, no payload needed
+    """Device heartbeat with optional source for TTL tracking."""
+    source: str = Field(default="foreground", pattern="^(foreground|background|service)$")
+    # foreground: app is active on screen
+    # background: app is in background but still running
+    # service: background service heartbeat (may be killed by OS)
 
 
 class HeartbeatResponse(BaseModel):
     ok: bool
     server_time: str
+    next_interval_ms: int = 30000  # Suggest 30s heartbeat interval
 
 
 # ==================== TRUSTED ALLOWLIST ====================
