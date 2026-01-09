@@ -46,7 +46,7 @@ class AuthService {
       final data = json.decode(response.body);
       
       if (response.statusCode == 200) {
-        final token = data['token'];
+        final token = data['access_token'];
         final accountId = data['account_id'];
         
         // Store token

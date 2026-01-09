@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../models/ui_config.dart';
 import '../actions/action_dispatcher.dart';
 import '../services/remote_service.dart';
+import '../services/device_service.dart';
+import '../services/auth_service.dart';
 import 'remote_session.dart';
 import 'pending_requests.dart';
 
@@ -19,6 +21,9 @@ class _DeviceTabState extends State<DeviceTab> {
   final _remoteIdController = TextEditingController();
   bool _isConnecting = false;
   String? _pendingRequestId;
+  String? _claimToken;
+  bool _devicesLoading = false;
+  List<Device> _devices = [];
 
   List<ActionConfig> get _quickActions {
     final config = widget.config;
@@ -43,9 +48,36 @@ class _DeviceTabState extends State<DeviceTab> {
     }
   }
 
+  @override
+  void initState() {
+    super.initState();
+    _refreshDevices();
+  }
+
+  Future<void> _refreshDevices() async {
+    final loggedIn = await AuthService.isLoggedIn();
+    if (!loggedIn) {
+      setState(() {
+        _devices = [];
+        _devicesLoading = false;
+      });
+      return;
+    }
+    setState(() => _devicesLoading = true);
+    final list = await DeviceService.getDevices();
+    if (!mounted) return;
+    setState(() {
+      _devices = list;
+      _devicesLoading = false;
+    });
+  }
+
   /// Detect if input is share token (6 chars, uppercase) or device ID
   bool _isShareToken(String input) {
-    return input.length == 6 && input == input.toUpperCase();
+    final v = input.trim().toUpperCase();
+    if (v.length < 6 || v.length > 8) return false;
+    final re = RegExp(r'^[A-Z0-9]{6,8}$');
+    return re.hasMatch(v);
   }
 
   /// Handle connect button press
@@ -72,12 +104,21 @@ class _DeviceTabState extends State<DeviceTab> {
 
     if (result.success) {
       _pendingRequestId = result.requestId;
+      _claimToken = result.claimToken;
+
+      // If auto-approved, navigate immediately (trusted flow)
+      if ((result.status ?? '') == 'approved' && result.sessionId != null) {
+        // For auto-approved sessions, we still need controller_token (not returned here).
+        // Use claim API to fetch it.
+        await _pollForApproval(showDialogFirst: false);
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Request sent! Waiting for approval...')),
       );
       
       // Start polling for approval (in production use WebSocket)
-      _pollForApproval();
+      _pollForApproval(showDialogFirst: true);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Request failed: ${result.error}')),
@@ -87,17 +128,28 @@ class _DeviceTabState extends State<DeviceTab> {
   }
 
   /// Poll for approval status
-  Future<void> _pollForApproval() async {
+  Future<void> _pollForApproval({required bool showDialogFirst}) async {
     // Simple polling - in production this would be via WebSocket
     for (int i = 0; i < 60; i++) {
       await Future.delayed(const Duration(seconds: 2));
       
       if (!mounted) return;
       
-      // Check if session was approved (simplified - real impl would check status)
-      // For now, just show pending dialog
-      if (i == 0) {
+      if (i == 0 && showDialogFirst) {
         _showPendingDialog();
+      }
+
+      final requestId = _pendingRequestId;
+      final claimToken = _claimToken;
+      if (requestId == null || claimToken == null) continue;
+
+      final claim = await RemoteService.claim(requestId: requestId, claimToken: claimToken);
+      if (claim.ok && claim.status == 'approved' && claim.sessionId != null && claim.controllerToken != null) {
+        if (mounted) {
+          Navigator.of(context, rootNavigator: true).maybePop();
+          _navigateToSession(claim.sessionId!, wsToken: claim.controllerToken!);
+        }
+        return;
       }
     }
     
@@ -105,6 +157,7 @@ class _DeviceTabState extends State<DeviceTab> {
       setState(() {
         _isConnecting = false;
         _pendingRequestId = null;
+        _claimToken = null;
       });
     }
   }
@@ -137,27 +190,22 @@ class _DeviceTabState extends State<DeviceTab> {
             child: const Text('Cancel'),
           ),
           // Simulate approval for testing
-          ElevatedButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              _navigateToSession('test-session-id');
-            },
-            child: const Text('(Test) Simulate Approve'),
-          ),
+          const SizedBox.shrink(),
         ],
       ),
     );
   }
 
-  void _navigateToSession(String sessionId) {
+  void _navigateToSession(String sessionId, {required String wsToken}) {
     setState(() {
       _isConnecting = false;
       _pendingRequestId = null;
+      _claimToken = null;
     });
     
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => RemoteSessionScreen(sessionId: sessionId),
+        builder: (_) => RemoteSessionScreen(sessionId: sessionId, wsToken: wsToken),
       ),
     );
   }
@@ -255,36 +303,132 @@ class _DeviceTabState extends State<DeviceTab> {
             ],
             
             const SizedBox(height: 24),
-            
-            // Share Token section
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Allow Remote Access',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Generate a share token to let others connect to this device.',
-                      style: TextStyle(color: Colors.grey),
-                    ),
-                    const SizedBox(height: 12),
-                    ElevatedButton.icon(
-                      onPressed: _createShareToken,
-                      icon: const Icon(Icons.share),
-                      label: const Text('Generate Share Token'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                  ],
+
+            // My Devices section (same-account devices)
+            _buildMyDevices(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMyDevices() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'My Devices',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
                 ),
+                IconButton(
+                  onPressed: _devicesLoading ? null : _refreshDevices,
+                  icon: const Icon(Icons.refresh),
+                  tooltip: 'Refresh',
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Login to see all devices under your account. Tap a device to remote; use ⋮ to Share client.',
+              style: TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 12),
+
+            if (_devicesLoading)
+              const Center(child: Padding(padding: EdgeInsets.all(16), child: CircularProgressIndicator()))
+            else if (_devices.isEmpty)
+              const Padding(
+                padding: EdgeInsets.all(12),
+                child: Text('No devices found (login required).', style: TextStyle(color: Colors.grey)),
+              )
+            else
+              GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                  childAspectRatio: 1.6,
+                ),
+                itemCount: _devices.length,
+                itemBuilder: (context, idx) => _buildDeviceTile(_devices[idx]),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDeviceTile(Device d) {
+    final isThis = (DeviceService.deviceId != null && d.id == DeviceService.deviceId);
+    return InkWell(
+      onTap: () {
+        if (isThis) return;
+        _remoteIdController.text = d.id;
+        _handleConnect();
+      },
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey.shade200),
+          color: Colors.white,
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: d.online ? Colors.green : Colors.grey,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    d.name.isNotEmpty ? d.name : 'Device',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    isThis ? 'This device' : (d.online ? 'Online' : 'Offline'),
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert, size: 20),
+              onSelected: (v) async {
+                switch (v) {
+                  case 'share_client':
+                    await _shareClient(d);
+                    break;
+                  case 'copy_id':
+                    _remoteIdController.text = d.id;
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Device ID copied to input')));
+                    break;
+                }
+              },
+              itemBuilder: (ctx) => [
+                const PopupMenuItem(value: 'share_client', child: Text('Share client (generate token)')),
+                const PopupMenuItem(value: 'copy_id', child: Text('Copy device ID')),
+              ],
             ),
           ],
         ),
@@ -292,18 +436,20 @@ class _DeviceTabState extends State<DeviceTab> {
     );
   }
 
-  Future<void> _createShareToken() async {
-    final result = await RemoteService.createShareToken(validSeconds: 300);
-    if (result.success && result.token != null) {
+  Future<void> _shareClient(Device d) async {
+    // For now share = generate guest token for this device (as requested: per-device, not “this device” only).
+    final result = await RemoteService.createShareTokenForDevice(deviceId: d.id, expiresHours: 24, maxUses: 1);
+    if (!mounted) return;
+    if (result.success && result.token != null && result.token!.isNotEmpty) {
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('Share Token'),
+          title: const Text('Share Client Token'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('Share this token with others:'),
-              const SizedBox(height: 16),
+              Text('Device: ${d.name}'),
+              const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -312,28 +458,21 @@ class _DeviceTabState extends State<DeviceTab> {
                 ),
                 child: Text(
                   result.token!,
-                  style: const TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 4,
-                  ),
+                  style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: 3),
                 ),
               ),
               const SizedBox(height: 8),
-              const Text('Valid for 5 minutes', style: TextStyle(color: Colors.grey)),
+              const Text('Share this token to request access (owner must approve).', style: TextStyle(color: Colors.grey)),
             ],
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Close'),
-            ),
+            TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Close')),
           ],
         ),
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to create token: ${result.error}')),
+        SnackBar(content: Text('Share client failed: ${result.error ?? 'unknown'}')),
       );
     }
   }

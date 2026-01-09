@@ -1,17 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../services/webrtc_service.dart';
+import '../services/remote_service.dart';
+import '../services/device_service.dart';
 
 /// Remote Session Screen for Remote Preview v0.1
 /// Displays remote video stream from host
 class RemoteSessionScreen extends StatefulWidget {
   final String sessionId;
   final bool isHost;
+  final String? wsToken; // controller_token or host_token depending on role
 
   const RemoteSessionScreen({
     Key? key,
     required this.sessionId,
     this.isHost = false,
+    this.wsToken,
   }) : super(key: key);
 
   @override
@@ -79,8 +83,37 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
       return;
     }
 
-    // Connect signaling
-    final connected = await _webrtcService!.connectSignaling();
+    String? token = widget.wsToken;
+    // If hosting and token not provided, attach to session to obtain host_token.
+    if (widget.isHost && token == null) {
+      final hostDeviceId = DeviceService.deviceId;
+      if (hostDeviceId == null) {
+        setState(() {
+          _error = 'Device not registered. Please login again.';
+          _isConnecting = false;
+        });
+        return;
+      }
+      final attach = await RemoteService.hostAttach(hostDeviceId: hostDeviceId);
+      if (!attach.success || attach.hostToken == null) {
+        setState(() {
+          _error = 'Host attach failed: ${attach.error}';
+          _isConnecting = false;
+        });
+        return;
+      }
+      token = attach.hostToken!;
+    }
+
+    // Connect signaling using proper token (controller_token or host_token)
+    if (token == null) {
+      setState(() {
+        _error = 'Missing signaling token';
+        _isConnecting = false;
+      });
+      return;
+    }
+    final connected = await _webrtcService!.connectSignaling(wsToken: token);
     if (!connected) {
       setState(() {
         _error = 'Failed to connect signaling';
@@ -89,9 +122,17 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
       return;
     }
 
-    // Start as viewer
+    // Start as viewer/host
     if (!widget.isHost) {
       await _webrtcService!.startViewer();
+    } else {
+      final stream = await navigator.mediaDevices.getDisplayMedia({
+        'audio': false,
+        'video': {
+          'mandatory': {'minWidth': 720, 'minHeight': 1280, 'minFrameRate': 15},
+        },
+      });
+      await _webrtcService!.startHost(stream);
     }
   }
 

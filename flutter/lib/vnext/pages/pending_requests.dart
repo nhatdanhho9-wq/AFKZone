@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/remote_service.dart';
 import 'remote_session.dart';
+import '../services/device_service.dart';
 
 /// Pending Requests Screen for Remote Preview v0.1
 /// Shows pending remote requests for owner to approve/reject
@@ -36,15 +37,25 @@ class _PendingRequestsScreenState extends State<PendingRequestsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Approved! Session: ${result.sessionId}')),
       );
-      // Navigate to host session
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => RemoteSessionScreen(
-            sessionId: result.sessionId!,
-            isHost: true,
-          ),
-        ),
-      );
+      // If the approving device is ALSO the target host device, it can attach and start sharing immediately.
+      // Otherwise (owner approves from another device), the target host device will poll /sessions/host/attach
+      // and show the screen-share prompt locally.
+      final hostDeviceId = DeviceService.deviceId;
+      if (hostDeviceId != null) {
+        final attach = await RemoteService.hostAttach(hostDeviceId: hostDeviceId);
+        if (attach.success && attach.hostToken != null) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (_) => RemoteSessionScreen(
+                sessionId: result.sessionId!,
+                isHost: true,
+                wsToken: attach.hostToken!,
+              ),
+            ),
+          );
+          return;
+        }
+      }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Approve failed: ${result.error}')),
@@ -103,6 +114,9 @@ class _PendingRequestsScreenState extends State<PendingRequestsScreen> {
   }
 
   Widget _buildRequestCard(PendingRequest request) {
+    final subtitle = (request.requesterDeviceId != null && request.requesterDeviceId!.isNotEmpty)
+        ? 'From device: ${request.requesterDeviceId}'
+        : (request.requesterAccountId != null ? 'From account: ${request.requesterAccountId}' : 'From: unknown');
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
@@ -122,9 +136,10 @@ class _PendingRequestsScreenState extends State<PendingRequestsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        request.requesterName ?? 'Unknown User',
+                        request.requesterName ?? 'Remote Request',
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                       ),
+                      Text(subtitle, style: TextStyle(color: Colors.grey[600], fontSize: 12)),
                       Text(
                         'Request ID: ${request.requestId.substring(0, 8)}...',
                         style: TextStyle(color: Colors.grey[600], fontSize: 12),

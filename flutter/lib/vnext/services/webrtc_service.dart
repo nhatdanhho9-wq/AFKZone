@@ -70,13 +70,9 @@ class WebRTCService {
   }
 
   /// Connect to signaling WebSocket
-  Future<bool> connectSignaling() async {
+  Future<bool> connectSignaling({required String wsToken}) async {
     try {
-      final wsUrl = await RemoteService.getSignalingUrl(sessionId);
-      if (wsUrl == null) {
-        onError?.call('Failed to get signaling URL');
-        return false;
-      }
+      final wsUrl = RemoteService.signalingUrl(sessionId: sessionId, wsToken: wsToken);
 
       _wsChannel = WebSocketChannel.connect(Uri.parse(wsUrl));
       
@@ -121,7 +117,7 @@ class WebRTCService {
     // Send offer via signaling
     _sendSignaling({
       'type': 'sdp_offer',
-      'sdp': offer.sdp,
+      'payload': {'sdp': offer.sdp},
     });
 
     print('[WebRTC] Viewer started, offer sent');
@@ -146,22 +142,25 @@ class WebRTCService {
     try {
       final data = json.decode(message);
       final type = data['type'];
+      final payload = (data['payload'] is Map<String, dynamic>)
+          ? (data['payload'] as Map<String, dynamic>)
+          : <String, dynamic>{};
 
       switch (type) {
         case 'sdp_offer':
-          await _handleOffer(data['sdp']);
+          await _handleOffer(payload['sdp']?.toString() ?? '');
           break;
         case 'sdp_answer':
-          await _handleAnswer(data['sdp']);
+          await _handleAnswer(payload['sdp']?.toString() ?? '');
           break;
         case 'ice_candidate':
-          await _handleIceCandidate(data);
+          await _handleIceCandidate(payload);
           break;
         case 'control_ready':
           print('[WebRTC] Control ready');
           break;
         case 'error':
-          onError?.call(data['message'] ?? 'Unknown error');
+          onError?.call(payload['message']?.toString() ?? 'Unknown error');
           break;
       }
     } catch (e) {
@@ -172,6 +171,10 @@ class WebRTCService {
   /// Handle SDP offer (host receives from viewer)
   Future<void> _handleOffer(String sdp) async {
     if (_peerConnection == null) return;
+    if (sdp.isEmpty) {
+      onError?.call('Received empty SDP offer');
+      return;
+    }
 
     await _peerConnection!.setRemoteDescription(
       RTCSessionDescription(sdp, 'offer'),
@@ -182,7 +185,7 @@ class WebRTCService {
 
     _sendSignaling({
       'type': 'sdp_answer',
-      'sdp': answer.sdp,
+      'payload': {'sdp': answer.sdp},
     });
 
     print('[WebRTC] Answer sent');
@@ -191,6 +194,10 @@ class WebRTCService {
   /// Handle SDP answer (viewer receives from host)
   Future<void> _handleAnswer(String sdp) async {
     if (_peerConnection == null) return;
+    if (sdp.isEmpty) {
+      onError?.call('Received empty SDP answer');
+      return;
+    }
 
     await _peerConnection!.setRemoteDescription(
       RTCSessionDescription(sdp, 'answer'),
@@ -204,9 +211,9 @@ class WebRTCService {
     if (_peerConnection == null) return;
 
     final candidate = RTCIceCandidate(
-      data['candidate'],
-      data['sdpMid'],
-      data['sdpMLineIndex'],
+      data['candidate']?.toString(),
+      data['sdpMid']?.toString(),
+      data['sdpMLineIndex'] is int ? data['sdpMLineIndex'] as int : null,
     );
     await _peerConnection!.addCandidate(candidate);
   }
@@ -215,9 +222,11 @@ class WebRTCService {
   void _onIceCandidate(RTCIceCandidate candidate) {
     _sendSignaling({
       'type': 'ice_candidate',
-      'candidate': candidate.candidate,
-      'sdpMid': candidate.sdpMid,
-      'sdpMLineIndex': candidate.sdpMLineIndex,
+      'payload': {
+        'candidate': candidate.candidate,
+        'sdpMid': candidate.sdpMid,
+        'sdpMLineIndex': candidate.sdpMLineIndex,
+      },
     });
   }
 

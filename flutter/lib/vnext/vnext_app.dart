@@ -4,10 +4,12 @@ import 'pages/discover_tab.dart';
 import 'pages/purchase_tab.dart';
 import 'pages/me_tab.dart';
 import 'pages/login_screen.dart';
+import 'pages/remote_session.dart';
 import 'models/ui_config.dart';
 import 'services/config_service.dart';
 import 'services/auth_service.dart';
 import 'services/device_service.dart';
+import 'services/remote_service.dart';
 
 /// vNext App - Server-driven mobile UI with auth flow
 /// Tabs rendered from /public/mobile-ui-config
@@ -24,53 +26,85 @@ class _VNextAppState extends State<VNextApp> {
   bool _isLoading = true;
   bool _isLoggedIn = false;
   String? _error;
+  // Owner/host background polling (MVP): show popup + attach to sessions when approved.
+  bool _pendingWatcherStarted = false;
+  bool _pendingDialogOpen = false;
 
   @override
   void initState() {
     super.initState();
-    _checkAuth();
+    _loadApp();
   }
 
-  Future<void> _checkAuth() async {
+  Future<void> _loadApp() async {
     setState(() => _isLoading = true);
-    final loggedIn = await AuthService.isLoggedIn();
-    
-    if (loggedIn) {
-      await _initializeApp();
-    } else {
-      setState(() {
-        _isLoggedIn = false;
-        _isLoading = false;
-      });
-    }
-  }
-
-  Future<void> _initializeApp() async {
     try {
-      // Load config
       final config = await ConfigService.loadConfig();
-      
-      // Register device and start heartbeat
-      await DeviceService.registerDevice(deviceName: 'vNext-Mobile');
-      DeviceService.startHeartbeat();
-      
+      final loggedIn = await AuthService.isLoggedIn();
+
       setState(() {
         _config = config;
-        _isLoggedIn = true;
+        _isLoggedIn = loggedIn;
         _isLoading = false;
       });
+
+      // Only register device + heartbeat when logged in (needs JWT).
+      if (loggedIn) {
+        await _initializeAfterLogin();
+      }
     } catch (e) {
       setState(() {
         _error = e.toString();
         _isLoading = false;
         _config = UiConfig.defaults();
-        _isLoggedIn = true;
       });
     }
   }
 
-  void _onLoginSuccess() async {
-    await _initializeApp();
+  Future<void> _initializeAfterLogin() async {
+    // Register device and start heartbeat
+    await DeviceService.registerDevice(deviceName: 'vNext-Mobile', platform: 'android');
+    DeviceService.startHeartbeat();
+    _startPendingWatcher();
+    
+    // Start host attach polling (for 3-device flow)
+    DeviceService.startHostAttachPolling(
+      onSessionReady: _onHostSessionReady,
+    );
+  }
+
+  /// Called when this device needs to act as host (approved by owner on another device)
+  void _onHostSessionReady(String sessionId, String hostToken) {
+    print('[VNextApp] Host session ready: $sessionId');
+    // Navigate to host session screen
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => RemoteSessionScreen(
+          sessionId: sessionId,
+          wsToken: hostToken,
+          isHost: true,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showLogin() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => LoginScreen(
+          onLoginSuccess: () async {
+            // Pop login screen first, then init.
+            Navigator.of(context).pop();
+            await _onLoginSuccess();
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _onLoginSuccess() async {
+    setState(() => _isLoggedIn = true);
+    await _initializeAfterLogin();
   }
 
   void _onLogout() async {
@@ -78,7 +112,56 @@ class _VNextAppState extends State<VNextApp> {
     await AuthService.logout();
     setState(() {
       _isLoggedIn = false;
-      _config = null;
+    });
+    _pendingWatcherStarted = false;
+  }
+
+  void _startPendingWatcher() {
+    if (_pendingWatcherStarted) return;
+    _pendingWatcherStarted = true;
+
+    // Lightweight loop: checks for pending requests and attaches to approved sessions (host).
+    Future<void>(() async {
+      while (mounted && _isLoggedIn) {
+        try {
+          // 1) If there is a pending request for this account, show a popup on the device that is the TARGET.
+          final pending = await RemoteService.getPending();
+          final myDeviceId = DeviceService.deviceId;
+          final forThisDevice = myDeviceId == null
+              ? null
+              : pending.where((r) => r.requesterDeviceId != null).toList();
+
+          // NOTE: Backend pending list doesn't include target_device_id per item in our client model.
+          // Keep MVP: rely on user opening Pending screen for approvals.
+          // Future: extend model + filter only requests targeting this device.
+
+          // 2) Host attach loop: try to attach if a session is pending for this device.
+          if (myDeviceId != null) {
+            final attach = await RemoteService.hostAttach(hostDeviceId: myDeviceId);
+            if (attach.success && attach.sessionId != null && attach.hostToken != null) {
+              if (!_pendingDialogOpen) {
+                _pendingDialogOpen = true;
+                if (mounted) {
+                  // Auto-open host session screen to trigger system screen-share prompt.
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => RemoteSessionScreen(
+                        sessionId: attach.sessionId!,
+                        isHost: true,
+                        wsToken: attach.hostToken!,
+                      ),
+                    ),
+                  ).then((_) => _pendingDialogOpen = false);
+                }
+              }
+            }
+          }
+
+          await Future.delayed(const Duration(seconds: 3));
+        } catch (_) {
+          await Future.delayed(const Duration(seconds: 5));
+        }
+      }
     });
   }
 
@@ -96,7 +179,12 @@ class _VNextAppState extends State<VNextApp> {
       case 'purchase':
         return PurchaseTab(config: _config);
       case 'me':
-        return MeTab(config: _config, onLogout: _onLogout);
+        return MeTab(
+          config: _config,
+          isLoggedIn: _isLoggedIn,
+          onShowLogin: _showLogin,
+          onLogout: _isLoggedIn ? _onLogout : null,
+        );
       default:
         return Center(child: Text('Unknown tab: $tabId'));
     }
@@ -134,11 +222,6 @@ class _VNextAppState extends State<VNextApp> {
       );
     }
 
-    // Show login if not logged in
-    if (!_isLoggedIn) {
-      return LoginScreen(onLoginSuccess: _onLoginSuccess);
-    }
-
     final tabs = _visibleTabs;
     if (tabs.isEmpty) {
       return Scaffold(
@@ -151,7 +234,7 @@ class _VNextAppState extends State<VNextApp> {
               Text('Config Error: ${_error ?? "No tabs configured"}'),
               const SizedBox(height: 16),
               ElevatedButton(
-                onPressed: _checkAuth,
+                onPressed: _loadApp,
                 child: const Text('Retry'),
               ),
             ],

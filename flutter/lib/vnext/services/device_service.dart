@@ -1,14 +1,42 @@
-import 'dart:convert';
 import 'dart:async';
+import 'dart:convert';
+import 'dart:math';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../config/api_config.dart';
 import 'auth_service.dart';
 
 /// Device Service for Remote Preview v0.1
 /// Handles: register, list, heartbeat
 class DeviceService {
+  static const String _deviceIdKey = 'device_id';
   static String? _deviceId;
   static Timer? _heartbeatTimer;
+
+  static String _generateDeviceId() {
+    final rnd = Random.secure();
+    final bytes = List<int>.generate(16, (_) => rnd.nextInt(256));
+    return base64Url.encode(bytes).replaceAll('=', '');
+  }
+
+  static Future<String> _getOrCreateDeviceId() async {
+    if (_deviceId != null) return _deviceId!;
+    final prefs = await SharedPreferences.getInstance();
+    final existing = prefs.getString(_deviceIdKey);
+    if (existing != null && existing.isNotEmpty) {
+      _deviceId = existing;
+      return existing;
+    }
+    final created = _generateDeviceId();
+    await prefs.setString(_deviceIdKey, created);
+    _deviceId = created;
+    return created;
+  }
+
+  /// Ensure we have a stable device_id (even before login).
+  static Future<String> ensureDeviceId() async {
+    return await _getOrCreateDeviceId();
+  }
 
   /// Register device with server
   static Future<DeviceResult> registerDevice({
@@ -16,20 +44,22 @@ class DeviceService {
     String? platform,
   }) async {
     try {
+      final deviceId = await _getOrCreateDeviceId();
       final headers = await AuthService.getAuthHeaders();
       final response = await http.post(
         Uri.parse('${ApiConfig.baseUrl}/devices/register'),
         headers: headers,
         body: json.encode({
+          'device_id': deviceId,
           'device_name': deviceName,
-          'platform': platform ?? 'android',
+          'device_type': platform ?? 'android',
         }),
       ).timeout(Duration(seconds: 15));
 
       final data = json.decode(response.body);
       
       if (response.statusCode == 200 || response.statusCode == 201) {
-        _deviceId = data['device_id'];
+        _deviceId = data['device_id'] ?? deviceId;
         print('[DeviceService] Registered: $_deviceId');
         return DeviceResult(success: true, deviceId: _deviceId);
       } else {
@@ -98,6 +128,64 @@ class DeviceService {
     _heartbeatTimer = null;
   }
 
+  // Host auto-attach polling
+  static Timer? _hostAttachTimer;
+  static Function(String sessionId, String hostToken)? onHostSessionReady;
+
+  /// Start polling for host attach (for 3-device flow)
+  /// When owner approves from another device, this device gets the session
+  static void startHostAttachPolling({
+    required Function(String sessionId, String hostToken) onSessionReady,
+    Duration interval = const Duration(seconds: 3),
+  }) {
+    stopHostAttachPolling();
+    onHostSessionReady = onSessionReady;
+    
+    _hostAttachTimer = Timer.periodic(interval, (_) async {
+      await _checkHostAttach();
+    });
+    // Check immediately
+    _checkHostAttach();
+    print('[DeviceService] Host attach polling started');
+  }
+
+  /// Stop host attach polling
+  static void stopHostAttachPolling() {
+    _hostAttachTimer?.cancel();
+    _hostAttachTimer = null;
+    onHostSessionReady = null;
+  }
+
+  /// Check if there's a session waiting for this device to attach as host
+  static Future<void> _checkHostAttach() async {
+    if (_deviceId == null) return;
+    
+    try {
+      final headers = await AuthService.getAuthHeaders();
+      final response = await http.post(
+        Uri.parse('${ApiConfig.baseUrl}/sessions/host/attach'),
+        headers: headers,
+        body: json.encode({'host_device_id': _deviceId}),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final sessionId = data['session_id']?.toString();
+        final hostToken = data['token']?.toString();
+        
+        if (sessionId != null && sessionId.isNotEmpty && 
+            hostToken != null && hostToken.isNotEmpty) {
+          print('[DeviceService] Host session ready: $sessionId');
+          stopHostAttachPolling();
+          onHostSessionReady?.call(sessionId, hostToken);
+        }
+      }
+      // 404 = no pending session, keep polling
+    } catch (e) {
+      print('[DeviceService] Host attach check error: $e');
+    }
+  }
+
   /// Get current device ID
   static String? get deviceId => _deviceId;
 }
@@ -122,7 +210,7 @@ class Device {
     return Device(
       id: json['device_id'] ?? json['id'] ?? '',
       name: json['device_name'] ?? json['name'] ?? '',
-      platform: json['platform'] ?? 'unknown',
+      platform: json['device_type'] ?? json['platform'] ?? 'unknown',
       online: json['online'] ?? false,
       lastSeen: json['last_seen'],
     );

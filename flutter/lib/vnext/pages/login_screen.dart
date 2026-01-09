@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import '../config/api_config.dart';
 
 /// Login Screen for Remote Preview v0.1
 class LoginScreen extends StatefulWidget {
@@ -77,6 +78,12 @@ class _LoginScreenState extends State<LoginScreen> {
               Text(
                 'AFK Zone Remote Preview',
                 style: TextStyle(color: Colors.grey[600]),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'API: ${ApiConfig.baseUrl}',
+                style: TextStyle(color: Colors.grey[600], fontSize: 12),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 48),
