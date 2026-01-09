@@ -493,3 +493,338 @@ async def signaling_websocket(websocket: WebSocket, session_id: str, token: str)
         # If both disconnected, close session
         if session.controller_ws is None and session.host_ws is None:
             session_store.close_session(session_id, "both_disconnected")
+
+
+# ==================== FAN-OUT NOTIFICATION SYSTEM ====================
+
+class RemoteRequest(BaseModel):
+    """Request to initiate remote access to a shared device."""
+    share_creator_device_id: str = Field(min_length=1, max_length=128)
+    requester_device_id: str = Field(min_length=1, max_length=128)
+    requester_name: Optional[str] = None
+    features_requested: List[str] = []
+
+
+class RemoteRequestResponse(BaseModel):
+    """Response for remote request creation."""
+    request_id: str
+    status: str  # pending, accepted, rejected, expired
+    expires_at: str
+
+
+class PendingRemoteRequest:
+    """In-memory pending remote request."""
+    def __init__(
+        self,
+        request_id: str,
+        share_creator_device_id: str,
+        requester_device_id: str,
+        requester_name: Optional[str],
+        features_requested: List[str],
+        owner_user_id: str,
+    ):
+        self.request_id = request_id
+        self.share_creator_device_id = share_creator_device_id
+        self.requester_device_id = requester_device_id
+        self.requester_name = requester_name
+        self.features_requested = features_requested
+        self.owner_user_id = owner_user_id
+        self.status = "pending"  # pending, accepted, rejected, expired
+        self.created_at = datetime.now(timezone.utc)
+        self.expires_at = self.created_at.timestamp() + 60  # 60 second TTL
+
+
+class DeviceRegistry:
+    """
+    Manages device presence via WebSocket connections.
+    Enables fan-out notifications to all devices of a user.
+    """
+    def __init__(self):
+        # {user_id: {device_id: WebSocket}}
+        self._ws_by_user: Dict[str, Dict[str, WebSocket]] = {}
+        # {device_id: user_id}
+        self._device_to_user: Dict[str, str] = {}
+        # Pending remote requests: {request_id: PendingRemoteRequest}
+        self._pending_requests: Dict[str, PendingRemoteRequest] = {}
+        # Device to owner mapping (mock for MVP)
+        self._device_owners: Dict[str, str] = {}
+    
+    async def register(self, user_id: str, device_id: str, ws: WebSocket):
+        """Register a device WebSocket connection."""
+        if user_id not in self._ws_by_user:
+            self._ws_by_user[user_id] = {}
+        self._ws_by_user[user_id][device_id] = ws
+        self._device_to_user[device_id] = user_id
+        self._device_owners[device_id] = user_id
+    
+    async def unregister(self, device_id: str):
+        """Unregister a device WebSocket connection."""
+        user_id = self._device_to_user.pop(device_id, None)
+        if user_id and user_id in self._ws_by_user:
+            self._ws_by_user[user_id].pop(device_id, None)
+            if not self._ws_by_user[user_id]:
+                del self._ws_by_user[user_id]
+    
+    def get_owner(self, device_id: str) -> Optional[str]:
+        """Get owner user_id for a device."""
+        return self._device_owners.get(device_id)
+    
+    def set_device_owner(self, device_id: str, user_id: str):
+        """Set owner for a device (used when device registers)."""
+        self._device_owners[device_id] = user_id
+    
+    async def notify_user_devices(self, user_id: str, message: dict) -> int:
+        """
+        Fan-out notification to all online devices of a user.
+        Returns number of devices notified.
+        """
+        count = 0
+        for device_id, ws in list(self._ws_by_user.get(user_id, {}).items()):
+            try:
+                await ws.send_json(message)
+                count += 1
+            except Exception:
+                # Connection likely dead, will be cleaned on next heartbeat
+                pass
+        return count
+    
+    def create_pending_request(
+        self,
+        share_creator_device_id: str,
+        requester_device_id: str,
+        requester_name: Optional[str],
+        features_requested: List[str],
+    ) -> Optional[PendingRemoteRequest]:
+        """Create a pending remote request."""
+        owner_user_id = self.get_owner(share_creator_device_id)
+        if not owner_user_id:
+            return None
+        
+        request_id = secrets.token_urlsafe(16)
+        request = PendingRemoteRequest(
+            request_id=request_id,
+            share_creator_device_id=share_creator_device_id,
+            requester_device_id=requester_device_id,
+            requester_name=requester_name,
+            features_requested=features_requested,
+            owner_user_id=owner_user_id,
+        )
+        self._pending_requests[request_id] = request
+        return request
+    
+    def get_pending_request(self, request_id: str) -> Optional[PendingRemoteRequest]:
+        """Get a pending request by ID."""
+        req = self._pending_requests.get(request_id)
+        if req and time.time() > req.expires_at:
+            req.status = "expired"
+        return req
+    
+    def get_pending_for_user(self, user_id: str) -> List[Dict]:
+        """Get all pending requests for a user (for polling)."""
+        now = time.time()
+        result = []
+        for req in self._pending_requests.values():
+            if req.owner_user_id == user_id and req.status == "pending":
+                if now > req.expires_at:
+                    req.status = "expired"
+                else:
+                    result.append({
+                        "request_id": req.request_id,
+                        "share_creator_device_id": req.share_creator_device_id,
+                        "requester_device_id": req.requester_device_id,
+                        "requester_name": req.requester_name,
+                        "features": req.features_requested,
+                        "created_at": req.created_at.isoformat(),
+                        "expires_at": datetime.fromtimestamp(req.expires_at, tz=timezone.utc).isoformat(),
+                    })
+        return result
+    
+    def update_request_status(self, request_id: str, status: str) -> bool:
+        """Update status of a pending request."""
+        req = self._pending_requests.get(request_id)
+        if req and req.status == "pending":
+            req.status = status
+            return True
+        return False
+
+
+# Global device registry
+device_registry = DeviceRegistry()
+
+
+# ==================== REMOTE NOTIFICATION ENDPOINTS ====================
+
+@router.post("/remote/request", response_model=RemoteRequestResponse)
+async def create_remote_request(req: RemoteRequest, request: Request):
+    """
+    Create a remote access request and notify all owner's devices.
+    
+    This triggers fan-out notification to all online devices of the
+    device owner so they can accept/reject the request.
+    """
+    # Rate limiting
+    client_ip = request.client.host if request.client else "unknown"
+    if session_store.check_rate_limit(client_ip, max_requests=10, window_seconds=60):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    
+    # Create pending request
+    pending = device_registry.create_pending_request(
+        share_creator_device_id=req.share_creator_device_id,
+        requester_device_id=req.requester_device_id,
+        requester_name=req.requester_name,
+        features_requested=req.features_requested,
+    )
+    
+    if not pending:
+        raise HTTPException(
+            status_code=404,
+            detail="Device not found or owner not registered"
+        )
+    
+    # Fan-out notification to all owner's devices
+    notification = {
+        "type": "remote_pending",
+        "request_id": pending.request_id,
+        "share_creator_device_id": pending.share_creator_device_id,
+        "requester_device_id": pending.requester_device_id,
+        "requester_name": pending.requester_name,
+        "features": pending.features_requested,
+        "expires_at": datetime.fromtimestamp(pending.expires_at, tz=timezone.utc).isoformat(),
+        "ts": datetime.now(timezone.utc).isoformat(),
+    }
+    
+    notified_count = await device_registry.notify_user_devices(
+        pending.owner_user_id,
+        notification
+    )
+    
+    session_store._audit("remote_request", pending.request_id, "requester", {
+        "share_creator_device_id": pending.share_creator_device_id,
+        "requester_device_id": pending.requester_device_id,
+        "notified_devices": notified_count,
+    })
+    
+    return RemoteRequestResponse(
+        request_id=pending.request_id,
+        status=pending.status,
+        expires_at=datetime.fromtimestamp(pending.expires_at, tz=timezone.utc).isoformat(),
+    )
+
+
+@router.get("/remote/pending")
+async def get_pending_requests(user_id: str):
+    """
+    Polling fallback: Get all pending remote requests for a user.
+    
+    Used when WebSocket is unavailable.
+    """
+    pending = device_registry.get_pending_for_user(user_id)
+    return {"pending": pending}
+
+
+@router.post("/remote/respond/{request_id}")
+async def respond_to_request(request_id: str, accept: bool):
+    """
+    Accept or reject a remote request.
+    
+    If accepted, creates a signaling session.
+    """
+    pending = device_registry.get_pending_request(request_id)
+    if not pending:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    if pending.status != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Request already {pending.status}"
+        )
+    
+    if accept:
+        device_registry.update_request_status(request_id, "accepted")
+        
+        # Create signaling session
+        session = session_store.create_session(
+            target_device_id=pending.share_creator_device_id,
+            features_requested=pending.features_requested,
+        )
+        
+        session_store._audit("remote_accepted", request_id, "owner", {
+            "session_id": session.session_id,
+        })
+        
+        return {
+            "status": "accepted",
+            "session_id": session.session_id,
+            "signaling_ws_url": f"/sessions/{session.session_id}/ws",
+        }
+    else:
+        device_registry.update_request_status(request_id, "rejected")
+        
+        session_store._audit("remote_rejected", request_id, "owner", {})
+        
+        return {"status": "rejected"}
+
+
+@router.websocket("/remote/ws")
+async def device_presence_ws(websocket: WebSocket, token: str):
+    """
+    WebSocket for device presence and push notifications.
+    
+    Query params:
+    - token: JWT containing user_id and device_id
+    
+    Message types received:
+    - heartbeat: keep-alive ping
+    - register_device: set device owner
+    
+    Message types sent:
+    - remote_pending: new remote access request
+    - remote_cancelled: request was cancelled
+    - heartbeat_ack: response to heartbeat
+    """
+    # For MVP, parse token as "user_id:device_id"
+    # In production, use proper JWT verification
+    try:
+        parts = token.split(":")
+        if len(parts) != 2:
+            await websocket.close(code=4001, reason="Invalid token format")
+            return
+        user_id, device_id = parts
+    except Exception:
+        await websocket.close(code=4001, reason="Invalid token")
+        return
+    
+    await websocket.accept()
+    await device_registry.register(user_id, device_id, websocket)
+    
+    session_store._audit("device_online", device_id, "device", {
+        "user_id": user_id,
+    })
+    
+    try:
+        while True:
+            data = await websocket.receive_json()
+            msg_type = data.get("type")
+            
+            if msg_type == "heartbeat":
+                await websocket.send_json({
+                    "type": "heartbeat_ack",
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                })
+            
+            elif msg_type == "register_device":
+                # Allow device to register itself with owner
+                device_registry.set_device_owner(device_id, user_id)
+                await websocket.send_json({
+                    "type": "device_registered",
+                    "device_id": device_id,
+                    "user_id": user_id,
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                })
+    
+    except WebSocketDisconnect:
+        await device_registry.unregister(device_id)
+        session_store._audit("device_offline", device_id, "device", {
+            "user_id": user_id,
+        })
+

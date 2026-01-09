@@ -76,17 +76,24 @@ def _init_remote_tables():
     conn = _db()
     cur = conn.cursor()
     
-    # Read and execute migration
-    migration_path = APP_ROOT / "migrations" / "001_remote_mvp.sql"
-    if migration_path.exists():
-        cur.executescript(migration_path.read_text())
+    # Read and execute migrations
+    for migration in ("001_remote_mvp.sql", "002_remote_mvp_v02.sql"):
+        migration_path = APP_ROOT / "migrations" / migration
+        if migration_path.exists():
+            try:
+                cur.executescript(migration_path.read_text())
+            except sqlite3.OperationalError:
+                # Ignore errors (e.g., columns already exist)
+                pass
 
     # Best-effort schema upgrades for MVP (SQLite)
-    # - remote_request.claim_token: requester polls/claims session after approval
-    # - remote_request.controller_token: controller_token from signaling session_store
     for ddl in (
         "ALTER TABLE remote_request ADD COLUMN claim_token TEXT",
         "ALTER TABLE remote_request ADD COLUMN controller_token TEXT",
+        "ALTER TABLE share_token ADD COLUMN created_by_device_id TEXT",
+        "ALTER TABLE device ADD COLUMN current_session_id TEXT",
+        "ALTER TABLE device ADD COLUMN session_started_at TEXT",
+        "ALTER TABLE trusted_allowlist ADD COLUMN controller_device_id TEXT",
     ):
         try:
             cur.execute(ddl)
@@ -138,7 +145,7 @@ async def auth_register(req: RegisterRequest) -> JSONResponse:
 
 @router.post("/auth/login", response_model=LoginResponse)
 async def auth_login(req: LoginRequest) -> LoginResponse:
-    """Login and get access token."""
+    """Login and get access token. Optionally auto-register device."""
     conn = _db()
     cur = conn.cursor()
     
@@ -146,18 +153,127 @@ async def auth_login(req: LoginRequest) -> LoginResponse:
         "SELECT account_id, password_hash FROM account WHERE username = ?",
         (req.username,)
     ).fetchone()
-    conn.close()
     
     if not row or not verify_password(req.password, row["password_hash"]):
+        conn.close()
         raise HTTPException(status_code=401, detail="Invalid username or password")
     
-    token, expires_at = create_access_token(row["account_id"], req.username)
+    account_id = row["account_id"]
+    token, expires_at = create_access_token(account_id, req.username)
+    
+    device_id = None
+    account_switched = False
+    
+    # Auto-register device if provided
+    if req.device_id or req.device_name:
+        device_id = req.device_id or secrets.token_urlsafe(18)
+        device_name = req.device_name or f"Device-{device_id[:8]}"
+        
+        # Check if device was previously registered to another account
+        existing = cur.execute(
+            "SELECT account_id FROM device WHERE device_id = ?",
+            (device_id,)
+        ).fetchone()
+        
+        if existing and existing["account_id"] != account_id:
+            # Account switch: mark old registration as switched_out
+            account_switched = True
+            cur.execute(
+                """
+                INSERT INTO device_session_history (device_id, account_id, action, ts)
+                VALUES (?, ?, 'switch_out', ?)
+                """,
+                (device_id, existing["account_id"], _utc_now_iso())
+            )
+        
+        # Upsert device with new account
+        session_id = secrets.token_urlsafe(12)
+        cur.execute(
+            """
+            INSERT INTO device (device_id, account_id, device_name, device_type, last_seen, online, current_session_id, session_started_at, created_at)
+            VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
+            ON CONFLICT(device_id) DO UPDATE SET
+                account_id = excluded.account_id,
+                device_name = excluded.device_name,
+                device_type = excluded.device_type,
+                last_seen = excluded.last_seen,
+                online = 1,
+                current_session_id = excluded.current_session_id,
+                session_started_at = excluded.session_started_at
+            """,
+            (device_id, account_id, device_name, req.device_type, _utc_now_iso(), session_id, _utc_now_iso(), _utc_now_iso())
+        )
+        
+        # Log login event
+        cur.execute(
+            """
+            INSERT INTO device_session_history (device_id, account_id, action, ts)
+            VALUES (?, ?, 'login', ?)
+            """,
+            (device_id, account_id, _utc_now_iso())
+        )
+    
+    # Handle previous_device_id invalidation (explicit account switch)
+    if req.previous_device_id and req.previous_device_id != device_id:
+        cur.execute(
+            """
+            UPDATE device SET online = 0, current_session_id = NULL
+            WHERE device_id = ? AND account_id != ?
+            """,
+            (req.previous_device_id, account_id)
+        )
+        cur.execute(
+            """
+            INSERT INTO device_session_history (device_id, account_id, action, ts)
+            SELECT device_id, account_id, 'switch_out', ?
+            FROM device WHERE device_id = ? AND account_id != ?
+            """,
+            (_utc_now_iso(), req.previous_device_id, account_id)
+        )
+        account_switched = True
+    
+    conn.commit()
+    conn.close()
     
     return LoginResponse(
         access_token=token,
-        account_id=row["account_id"],
+        account_id=account_id,
         expires_in=86400,
+        device_id=device_id,
+        account_switched=account_switched,
     )
+
+
+@router.post("/auth/logout")
+async def auth_logout(
+    device_id: Optional[str] = None,
+    user: TokenClaims = Depends(get_current_user)
+) -> JSONResponse:
+    """Logout: mark device offline and log session end."""
+    conn = _db()
+    cur = conn.cursor()
+    
+    if device_id:
+        # Mark specific device as offline
+        cur.execute(
+            """
+            UPDATE device SET online = 0, current_session_id = NULL
+            WHERE device_id = ? AND account_id = ?
+            """,
+            (device_id, user.account_id)
+        )
+        cur.execute(
+            """
+            INSERT INTO device_session_history (device_id, account_id, action, ts)
+            VALUES (?, ?, 'logout', ?)
+            """,
+            (device_id, user.account_id, _utc_now_iso())
+        )
+    
+    conn.commit()
+    conn.close()
+    
+    return JSONResponse({"ok": True})
 
 
 # ==================== DEVICE ENDPOINTS ====================
@@ -168,6 +284,7 @@ async def device_register(
     user: TokenClaims = Depends(get_current_user)
 ) -> JSONResponse:
     """Register a device to the authenticated account."""
+    device_id = req.device_id or secrets.token_urlsafe(18)
     conn = _db()
     cur = conn.cursor()
     
@@ -182,12 +299,12 @@ async def device_register(
             last_seen = excluded.last_seen,
             online = 1
         """,
-        (req.device_id, user.account_id, req.device_name, req.device_type, _utc_now_iso(), _utc_now_iso())
+        (device_id, user.account_id, req.device_name, req.device_type, _utc_now_iso(), _utc_now_iso())
     )
     conn.commit()
     conn.close()
     
-    return JSONResponse({"ok": True, "device_id": req.device_id})
+    return JSONResponse({"ok": True, "device_id": device_id})
 
 
 @router.get("/devices", response_model=DeviceListResponse)
@@ -360,14 +477,34 @@ async def trusted_approve(
         conn.close()
         raise HTTPException(status_code=409, detail=f"Request already {row['status']}")
     
-    cur.execute(
-        "UPDATE trusted_allowlist SET status = 'approved', approved_at = ?, updated_at = ? WHERE id = ?",
-        (_utc_now_iso(), _utc_now_iso(), req.request_id)
-    )
+    # Get requester_device_id from the trust request to save as controller_device_id
+    trust_req = cur.execute(
+        "SELECT requester_device_id, target_device_id FROM trusted_allowlist WHERE id = ?",
+        (req.request_id,)
+    ).fetchone()
+    
+    # Update with optional controller_device_id for device pair auto-approve
+    if req.trust and trust_req and trust_req["requester_device_id"]:
+        # Save device pair for future auto-approve
+        cur.execute(
+            """
+            UPDATE trusted_allowlist 
+            SET status = 'approved', approved_at = ?, updated_at = ?, controller_device_id = ?
+            WHERE id = ?
+            """,
+            (_utc_now_iso(), _utc_now_iso(), trust_req["requester_device_id"], req.request_id)
+        )
+    else:
+        # Standard approval without device pair
+        cur.execute(
+            "UPDATE trusted_allowlist SET status = 'approved', approved_at = ?, updated_at = ? WHERE id = ?",
+            (_utc_now_iso(), _utc_now_iso(), req.request_id)
+        )
+    
     conn.commit()
     conn.close()
     
-    return JSONResponse({"ok": True})
+    return JSONResponse({"ok": True, "trusted_device_pair": bool(req.trust and trust_req and trust_req["requester_device_id"])})
 
 
 @router.post("/trusted/revoke")
@@ -443,10 +580,10 @@ async def share_create(
     
     cur.execute(
         """
-        INSERT INTO share_token (token, device_id, account_id, expires_at, max_uses, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO share_token (token, device_id, account_id, expires_at, max_uses, created_at, created_by_device_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (token, req.device_id, user.account_id, expires_at, req.max_uses, _utc_now_iso())
+        (token, req.device_id, user.account_id, expires_at, req.max_uses, _utc_now_iso(), req.created_by_device_id)
     )
     conn.commit()
     conn.close()
@@ -578,16 +715,32 @@ async def remote_request(
         raise HTTPException(status_code=400, detail="Must provide target_device_id or share_token")
     
     # Check if trusted (auto-approve)
+    # Priority 1: Check device pair (controller_device_id → host_device_id)
+    # Priority 2: Check account-level trust (requester_account_id → target_device_id)
     auto_approve = False
-    if user:
-        trusted = cur.execute(
+    if user and req.requester_device_id:
+        # Check device pair first (most specific)
+        device_pair_trusted = cur.execute(
+            """
+            SELECT id FROM trusted_allowlist
+            WHERE target_device_id = ? 
+              AND controller_device_id = ? 
+              AND status = 'approved'
+            """,
+            (target_device_id, req.requester_device_id)
+        ).fetchone()
+        auto_approve = device_pair_trusted is not None
+    
+    if not auto_approve and user:
+        # Fallback to account-level trust
+        account_trusted = cur.execute(
             """
             SELECT id FROM trusted_allowlist
             WHERE target_device_id = ? AND requester_account_id = ? AND status = 'approved'
             """,
             (target_device_id, user.account_id)
         ).fetchone()
-        auto_approve = trusted is not None
+        auto_approve = account_trusted is not None
     
     request_id = secrets.token_urlsafe(12)
     claim_token = secrets.token_urlsafe(18)
@@ -645,10 +798,19 @@ async def remote_pending(user: TokenClaims = Depends(get_current_user)) -> Remot
     
     rows = cur.execute(
         """
-        SELECT r.request_id, r.target_device_id, r.requester_account_id, r.requester_device_id,
-               r.share_token, r.status, r.created_at, r.expires_at
+        SELECT r.request_id,
+               r.target_device_id,
+               d.device_name AS target_device_name,
+               r.requester_account_id,
+               r.requester_device_id,
+               r.share_token,
+               s.created_by_device_id AS share_created_by_device_id,
+               r.status,
+               r.created_at,
+               r.expires_at
         FROM remote_request r
         JOIN device d ON r.target_device_id = d.device_id
+        LEFT JOIN share_token s ON r.share_token = s.token
         WHERE d.account_id = ? AND r.status = 'pending'
         ORDER BY r.created_at DESC
         """,
@@ -660,9 +822,11 @@ async def remote_pending(user: TokenClaims = Depends(get_current_user)) -> Remot
         RemoteRequestInfo(
             request_id=r["request_id"],
             target_device_id=r["target_device_id"],
+            target_device_name=r["target_device_name"],
             requester_account_id=r["requester_account_id"],
             requester_device_id=r["requester_device_id"],
             share_token=r["share_token"],
+            share_created_by_device_id=r["share_created_by_device_id"],
             status=r["status"],
             created_at=r["created_at"],
             expires_at=r["expires_at"],

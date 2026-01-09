@@ -160,7 +160,6 @@ class _VNextAppState extends State<VNextApp> {
           }
 
           // 2) Host attach loop: try to attach if a session is pending for this device.
-          final myDeviceId = DeviceService.deviceId;
           if (myDeviceId != null) {
             final attach = await RemoteService.hostAttach(hostDeviceId: myDeviceId);
             if (attach.success && attach.sessionId != null && attach.hostToken != null) {

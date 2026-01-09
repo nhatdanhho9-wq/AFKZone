@@ -12,6 +12,12 @@ from pydantic import BaseModel, Field
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=1, max_length=128)
+    # Device auto-registration on login
+    device_id: Optional[str] = Field(default=None, max_length=128)
+    device_name: Optional[str] = Field(default=None, max_length=128)
+    device_type: str = Field(default="android", max_length=32)
+    # For account switch: previous device to invalidate
+    previous_device_id: Optional[str] = Field(default=None, max_length=128)
 
 
 class LoginResponse(BaseModel):
@@ -19,6 +25,10 @@ class LoginResponse(BaseModel):
     token_type: str = "bearer"
     account_id: str
     expires_in: int = 86400
+    # Device registered during login
+    device_id: Optional[str] = None
+    # Flag if account switched (old device cleared)
+    account_switched: bool = False
 
 
 class RegisterRequest(BaseModel):
@@ -29,7 +39,8 @@ class RegisterRequest(BaseModel):
 # ==================== DEVICES ====================
 
 class DeviceRegisterRequest(BaseModel):
-    device_id: str = Field(min_length=1, max_length=128)
+    # Allow server-assigned device_id (prevents LDPlayer clone collisions)
+    device_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
     device_name: str = Field(min_length=1, max_length=128)
     device_type: str = Field(default="android", max_length=32)
 
@@ -79,8 +90,9 @@ class TrustedRequestCreate(BaseModel):
 
 
 class TrustedApproveRequest(BaseModel):
-    """Owner approves a trust request."""
+    """Owner approves a trust request. If trust=True, save controller device pair for auto-approve."""
     request_id: int
+    trust: bool = False  # If True, save device pair for future auto-approve
 
 
 class TrustedRevokeRequest(BaseModel):
@@ -94,6 +106,8 @@ class ShareCreateRequest(BaseModel):
     device_id: str = Field(min_length=1, max_length=128)
     expires_hours: int = Field(default=24, ge=1, le=168)  # 1 hour to 1 week
     max_uses: int = Field(default=1, ge=1, le=100)
+    # Which owner device created this token (for notification UX)
+    created_by_device_id: Optional[str] = None
 
 
 class ShareCreateResponse(BaseModel):
@@ -134,9 +148,11 @@ class RemoteRequestResponse(BaseModel):
 class RemoteRequestInfo(BaseModel):
     request_id: str
     target_device_id: str
+    target_device_name: Optional[str] = None
     requester_account_id: Optional[str]
     requester_device_id: Optional[str]
     share_token: Optional[str]
+    share_created_by_device_id: Optional[str] = None
     status: str
     created_at: str
     expires_at: str
