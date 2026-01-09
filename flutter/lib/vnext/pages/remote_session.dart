@@ -120,6 +120,7 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
     // 2-step host_ready flow callbacks
     _webrtcService!.onEnableScreenCapture = (requestId) {
       // Host receives: show MediaProjection dialog
+      print('[RemoteSession] >>> HOST: enable_screen_capture received! requestId=$requestId');
       setState(() {
         _pendingRequestIdForHost = requestId;
       });
@@ -209,6 +210,7 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
 
   /// Host: show MediaProjection dialog when server signals enable_screen_capture
   void _showEnableScreenCaptureDialog(String requestId) {
+    print('[RemoteSession] >>> HOST: Showing MediaProjection dialog for request=$requestId');
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -226,6 +228,7 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
         actions: [
           TextButton(
             onPressed: () {
+              print('[RemoteSession] >>> HOST: User cancelled MediaProjection dialog');
               Navigator.of(ctx).pop();
               _disconnect();
             },
@@ -233,6 +236,7 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
           ),
           ElevatedButton(
             onPressed: () async {
+              print('[RemoteSession] >>> HOST: User clicked BẮT ĐẦU NGAY');
               Navigator.of(ctx).pop();
               // Start MediaProjection and signal host_ready
               await _enableScreenCaptureAndNotify(requestId);
@@ -247,6 +251,7 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
 
   /// Host: trigger MediaProjection and POST /remote/host-ready
   Future<void> _enableScreenCaptureAndNotify(String requestId) async {
+    print('[RemoteSession] >>> HOST: Starting MediaProjection capture for request=$requestId');
     try {
       // Request MediaProjection
       final stream = await navigator.mediaDevices.getDisplayMedia({
@@ -255,15 +260,18 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
           'mandatory': {'minWidth': 720, 'minHeight': 1280, 'minFrameRate': 15},
         },
       });
+      print('[RemoteSession] >>> HOST: MediaProjection stream obtained, tracks=${stream.getTracks().length}');
       
       // Start hosting with the captured stream
       await _webrtcService!.startHost(stream);
+      print('[RemoteSession] >>> HOST: WebRTC startHost completed');
       
       // Notify server that host is ready
-      await RemoteService.hostReady(requestId, screenCapture: true);
-      print('[RemoteSession] Host ready signaled for request $requestId');
+      print('[RemoteSession] >>> HOST: Calling hostReady API for request=$requestId');
+      final success = await RemoteService.hostReady(requestId, screenCapture: true);
+      print('[RemoteSession] >>> HOST: hostReady API response: success=$success');
     } catch (e) {
-      print('[RemoteSession] Enable screen capture error: $e');
+      print('[RemoteSession] >>> HOST ERROR: Enable screen capture failed: $e');
       setState(() {
         _error = 'Failed to enable screen capture: $e';
       });
