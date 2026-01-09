@@ -185,17 +185,21 @@ class _DeviceTabState extends State<DeviceTab> {
         ),
         actions: [
           TextButton(
-            onPressed: () {
+            onPressed: () async {
+              // Call POST /remote/cancel + close dialog immediately
+              final requestId = _pendingRequestId;
               Navigator.of(context).pop();
               setState(() {
                 _isConnecting = false;
                 _pendingRequestId = null;
               });
+              if (requestId != null) {
+                await RemoteService.cancelRequest(requestId);
+                print('[DeviceTab] Cancelled request: $requestId');
+              }
             },
-            child: const Text('Cancel'),
+            child: const Text('Cancel', style: TextStyle(color: Colors.red)),
           ),
-          // Simulate approval for testing
-          const SizedBox.shrink(),
         ],
       ),
     );
@@ -508,6 +512,18 @@ class _DeviceTabState extends State<DeviceTab> {
                     children: [Icon(Icons.copy, size: 18), SizedBox(width: 8), Text('Copy device ID')],
                   ),
                 ),
+                const PopupMenuDivider(),
+                PopupMenuItem(
+                  value: 'delete',
+                  enabled: !isThis,
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete_outline, size: 18, color: isThis ? Colors.grey : Colors.red),
+                      const SizedBox(width: 8),
+                      Text('Clear client', style: TextStyle(color: isThis ? Colors.grey : Colors.red)),
+                    ],
+                  ),
+                ),
               ],
             ),
           ],
@@ -548,6 +564,11 @@ class _DeviceTabState extends State<DeviceTab> {
       case 'copy_id':
         _remoteIdController.text = d.id;
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Device ID copied to input')));
+        break;
+      case 'delete':
+        if (!isThis) {
+          await _deleteDevice(d);
+        }
         break;
     }
   }
@@ -603,6 +624,33 @@ class _DeviceTabState extends State<DeviceTab> {
         SnackBar(content: Text(success ? 'Relay setting updated' : 'Failed')),
       );
       if (success) _refreshDevices();
+    }
+  }
+
+  Future<void> _deleteDevice(Device d) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clear Client'),
+        content: Text('Are you sure you want to remove "${d.name.isNotEmpty ? d.name : d.id}" from your devices?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('CANCEL')),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('DELETE', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      final success = await DeviceService.deleteDevice(d.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(success ? 'Device removed' : 'Failed to remove device')),
+        );
+        if (success) _refreshDevices();
+      }
     }
   }
 

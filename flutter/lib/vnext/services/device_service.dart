@@ -225,6 +225,23 @@ class DeviceService {
     }
   }
 
+  /// Delete/deactivate device via DELETE /devices/{id}
+  static Future<bool> deleteDevice(String deviceId) async {
+    try {
+      final headers = await AuthService.getAuthHeaders();
+      final response = await http.delete(
+        Uri.parse('${ApiConfig.baseUrl}/devices/$deviceId'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 15));
+
+      print('[DeviceService] deleteDevice $deviceId: ${response.statusCode}');
+      return response.statusCode == 200 || response.statusCode == 204;
+    } catch (e) {
+      print('[DeviceService] deleteDevice error: $e');
+      return false;
+    }
+  }
+
   /// Get current device ID
   static String? get deviceId => _deviceId;
 }

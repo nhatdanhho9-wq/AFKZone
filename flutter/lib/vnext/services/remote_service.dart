@@ -216,6 +216,24 @@ class RemoteService {
     }
   }
 
+  /// Cancel a remote request (requester side)
+  static Future<bool> cancelRequest(String requestId) async {
+    try {
+      final headers = await AuthService.getAuthHeaders();
+      final response = await http.post(
+        Uri.parse('${ApiConfig.baseUrl}/remote/cancel'),
+        headers: headers,
+        body: json.encode({'request_id': requestId}),
+      ).timeout(Duration(seconds: 15));
+
+      print('[RemoteService] cancelRequest $requestId: ${response.statusCode}');
+      return response.statusCode == 200;
+    } catch (e) {
+      print('[RemoteService] cancelRequest error: $e');
+      return false;
+    }
+  }
+
   /// Get TURN credentials for a session
   static Future<TurnCredentials?> getTurnCredentials(String sessionId) async {
     try {
