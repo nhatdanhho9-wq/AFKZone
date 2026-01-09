@@ -159,6 +159,12 @@ class WebRTCService {
         case 'control_ready':
           print('[WebRTC] Control ready');
           break;
+        case 'remote_cancelled':
+        case 'remote_rejected':
+          print('[WebRTC] Remote session cancelled/rejected');
+          // Signal close
+          onConnectionState?.call(RTCPeerConnectionState.RTCPeerConnectionStateClosed);
+          break;
         case 'error':
           onError?.call(payload['message']?.toString() ?? 'Unknown error');
           break;

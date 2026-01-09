@@ -397,7 +397,13 @@ class _DeviceTabState extends State<DeviceTab> {
                   childAspectRatio: 1.6,
                 ),
                 itemCount: _devices.length,
-                itemBuilder: (context, idx) => _buildDeviceTile(_devices[idx]),
+                itemBuilder: (context, idx) {
+                  final d = _devices[idx];
+                  return Container(
+                    key: ValueKey(d.id),
+                    child: _buildDeviceTile(d),
+                  );
+                },
               ),
           ],
         ),

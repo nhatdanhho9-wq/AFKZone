@@ -82,14 +82,36 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
           _isConnected = false;
           _error = 'Connection failed';
         });
+      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
+        // Closed by remote peer or intentionally
+        print('[RemoteSession] Connection closed');
+        if (mounted) {
+          if (widget.isHost) {
+            // Host side: just close screen when peer cancels
+            Navigator.of(context).pop();
+          } else {
+            // Viewer side: show disconnected state
+            setState(() {
+              _isConnected = false;
+              _error = 'Session ended';
+            });
+          }
+        }
       }
     };
 
     _webrtcService!.onError = (error) {
-      setState(() {
-        _error = error;
-        _isConnecting = false;
-      });
+      if (error.contains('HOST_NOT_READY')) {
+        setState(() {
+          _error = 'Host needs to enable screen capture';
+          _isConnecting = false;
+        });
+      } else {
+        setState(() {
+          _error = error;
+          _isConnecting = false;
+        });
+      }
     };
 
     // Initialize WebRTC
