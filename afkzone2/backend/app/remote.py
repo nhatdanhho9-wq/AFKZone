@@ -29,6 +29,7 @@ from app.models import (
     DeviceInfo,
     DeviceListResponse,
     DeviceRegisterRequest,
+    DeviceUpdateRequest,
     HeartbeatRequest,
     HeartbeatResponse,
     LoginRequest,
@@ -60,9 +61,24 @@ from app.signaling import session_store
 APP_ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = APP_ROOT / "afkzone2.db"
 
+# TTL for online status: device is considered offline if last heartbeat > 60s ago
+ONLINE_TTL_SECONDS = 60
+
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _is_device_online(last_seen: Optional[str]) -> bool:
+    """Check if device is online based on last_seen TTL."""
+    if not last_seen:
+        return False
+    try:
+        last = datetime.fromisoformat(last_seen.replace("Z", "+00:00"))
+        delta = (datetime.now(timezone.utc) - last).total_seconds()
+        return delta <= ONLINE_TTL_SECONDS
+    except (ValueError, TypeError):
+        return False
 
 
 def _db() -> sqlite3.Connection:
@@ -94,6 +110,12 @@ def _init_remote_tables():
         "ALTER TABLE device ADD COLUMN current_session_id TEXT",
         "ALTER TABLE device ADD COLUMN session_started_at TEXT",
         "ALTER TABLE trusted_allowlist ADD COLUMN controller_device_id TEXT",
+        # v0.3: Device metadata
+        "ALTER TABLE device ADD COLUMN display_name TEXT",
+        "ALTER TABLE device ADD COLUMN is_favorite INTEGER DEFAULT 0",
+        "ALTER TABLE device ADD COLUMN always_relay INTEGER DEFAULT 0",
+        # v0.4.1: Heartbeat source tracking
+        "ALTER TABLE device ADD COLUMN heartbeat_source TEXT DEFAULT 'foreground'",
     ):
         try:
             cur.execute(ddl)
@@ -315,9 +337,10 @@ async def device_list(user: TokenClaims = Depends(get_current_user)) -> DeviceLi
     
     rows = cur.execute(
         """
-        SELECT device_id, device_name, device_type, online, last_seen, unattended_mode
+        SELECT device_id, device_name, device_type, online, last_seen, unattended_mode,
+               display_name, is_favorite, always_relay
         FROM device WHERE account_id = ?
-        ORDER BY last_seen DESC
+        ORDER BY is_favorite DESC, last_seen DESC
         """,
         (user.account_id,)
     ).fetchall()
@@ -328,9 +351,12 @@ async def device_list(user: TokenClaims = Depends(get_current_user)) -> DeviceLi
             device_id=r["device_id"],
             device_name=r["device_name"],
             device_type=r["device_type"],
-            online=bool(r["online"]),
+            online=_is_device_online(r["last_seen"]),  # TTL-based online status
             last_seen=r["last_seen"],
             unattended_mode=r["unattended_mode"] or "disabled",
+            display_name=r["display_name"],
+            is_favorite=bool(r["is_favorite"]),
+            always_relay=bool(r["always_relay"]),
         )
         for r in rows
     ]
@@ -338,23 +364,141 @@ async def device_list(user: TokenClaims = Depends(get_current_user)) -> DeviceLi
     return DeviceListResponse(devices=devices)
 
 
+@router.patch("/devices/{device_id}")
+async def device_update(
+    device_id: str,
+    req: DeviceUpdateRequest,
+    user: TokenClaims = Depends(get_current_user)
+) -> JSONResponse:
+    """Update device metadata (display_name, is_favorite, always_relay)."""
+    conn = _db()
+    cur = conn.cursor()
+    
+    # Verify ownership
+    device = cur.execute(
+        "SELECT account_id FROM device WHERE device_id = ?",
+        (device_id,)
+    ).fetchone()
+    
+    if not device or device["account_id"] != user.account_id:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    # Build update query dynamically
+    updates = []
+    params = []
+    if req.display_name is not None:
+        updates.append("display_name = ?")
+        params.append(req.display_name)
+    if req.is_favorite is not None:
+        updates.append("is_favorite = ?")
+        params.append(1 if req.is_favorite else 0)
+    if req.always_relay is not None:
+        updates.append("always_relay = ?")
+        params.append(1 if req.always_relay else 0)
+    
+    if updates:
+        params.append(device_id)
+        cur.execute(f"UPDATE device SET {', '.join(updates)} WHERE device_id = ?", params)
+        conn.commit()
+    
+    conn.close()
+    return JSONResponse({"ok": True})
+
+
 @router.post("/devices/{device_id}/heartbeat", response_model=HeartbeatResponse)
 async def device_heartbeat(
     device_id: str,
+    req: HeartbeatRequest = HeartbeatRequest(),
     user: TokenClaims = Depends(get_current_user)
 ) -> HeartbeatResponse:
-    """Update device presence (heartbeat)."""
+    """Update device presence (heartbeat) with source tracking."""
     conn = _db()
     cur = conn.cursor()
     
     cur.execute(
-        "UPDATE device SET last_seen = ?, online = 1 WHERE device_id = ? AND account_id = ?",
-        (_utc_now_iso(), device_id, user.account_id)
+        "UPDATE device SET last_seen = ?, online = 1, heartbeat_source = ? WHERE device_id = ? AND account_id = ?",
+        (_utc_now_iso(), req.source, device_id, user.account_id)
     )
     conn.commit()
     conn.close()
     
-    return HeartbeatResponse(ok=True, server_time=_utc_now_iso())
+    # Suggest different intervals based on source
+    next_interval = 30000 if req.source == "foreground" else 60000
+    return HeartbeatResponse(ok=True, server_time=_utc_now_iso(), next_interval_ms=next_interval)
+
+
+@router.delete("/devices/{device_id}")
+async def device_delete(
+    device_id: str,
+    current_device_id: Optional[str] = None,  # Query param: "this device" check
+    user: TokenClaims = Depends(get_current_user)
+) -> JSONResponse:
+    """
+    Delete a device from account with full cleanup:
+    - Revoke trust entries for this device
+    - Revoke share tokens for this device
+    - Remove pending remote requests
+    - Delete device record
+    
+    Cannot delete "this device" unless force=true (will require logout).
+    """
+    conn = _db()
+    cur = conn.cursor()
+    
+    # Verify ownership
+    device = cur.execute(
+        "SELECT account_id FROM device WHERE device_id = ?",
+        (device_id,)
+    ).fetchone()
+    
+    if not device or device["account_id"] != user.account_id:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    # Self-delete protection
+    if current_device_id and current_device_id == device_id:
+        conn.close()
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete current device. Logout first or use another device.",
+            headers={"X-Error-Code": "CANNOT_DELETE_SELF"}
+        )
+    
+    # Cleanup: Revoke trust entries where this device is target or controller
+    cur.execute(
+        "UPDATE trusted_allowlist SET status = 'revoked', updated_at = ? WHERE target_device_id = ? OR controller_device_id = ?",
+        (_utc_now_iso(), device_id, device_id)
+    )
+    
+    # Cleanup: Revoke share tokens for this device
+    cur.execute(
+        "UPDATE share_token SET revoked = 1 WHERE device_id = ?",
+        (device_id,)
+    )
+    
+    # Cleanup: Cancel pending remote requests for this device
+    cur.execute(
+        "UPDATE remote_request SET status = 'cancelled' WHERE target_device_id = ? AND status = 'pending'",
+        (device_id,)
+    )
+    
+    # Delete device record
+    cur.execute("DELETE FROM device WHERE device_id = ?", (device_id,))
+    
+    # Log deletion
+    cur.execute(
+        """
+        INSERT INTO device_session_history (device_id, account_id, action, ts)
+        VALUES (?, ?, 'deleted', ?)
+        """,
+        (device_id, user.account_id, _utc_now_iso())
+    )
+    
+    conn.commit()
+    conn.close()
+    
+    return JSONResponse({"ok": True, "deleted": device_id})
 
 
 # ==================== TRUSTED ALLOWLIST ENDPOINTS ====================
@@ -714,6 +858,15 @@ async def remote_request(
         conn.close()
         raise HTTPException(status_code=400, detail="Must provide target_device_id or share_token")
     
+    # Self-remote guard: prevent controller trying to remote into itself
+    if req.requester_device_id and req.requester_device_id == target_device_id:
+        conn.close()
+        raise HTTPException(
+            status_code=400, 
+            detail="Cannot remote into self",
+            headers={"X-Error-Code": "SELF_REMOTE_NOT_ALLOWED"}
+        )
+    
     # Check if trusted (auto-approve)
     # Priority 1: Check device pair (controller_device_id → host_device_id)
     # Priority 2: Check account-level trust (requester_account_id → target_device_id)
@@ -869,6 +1022,33 @@ async def remote_approve(
         conn.close()
         raise HTTPException(status_code=409, detail=f"Request already {row['status']}")
     
+    # Check if host device is online (based on heartbeat TTL)
+    host_device = cur.execute(
+        "SELECT last_seen, heartbeat_source, unattended_mode FROM device WHERE device_id = ?",
+        (row["target_device_id"],)
+    ).fetchone()
+    
+    if not host_device or not _is_device_online(host_device["last_seen"]):
+        conn.close()
+        raise HTTPException(
+            status_code=503,
+            detail="Host device is offline. Cannot establish remote session.",
+            headers={"X-Error-Code": "HOST_OFFLINE"}
+        )
+
+    # Check if host is ready (must be in foreground if unattended access is disabled)
+    is_unattended = (host_device["unattended_mode"] != "disabled")
+    # Default source to 'foreground' if None (backwards compat)
+    hb_source = host_device["heartbeat_source"] or "foreground"
+    
+    if not is_unattended and hb_source != "foreground":
+        conn.close()
+        raise HTTPException(
+            status_code=503,
+            detail="Host is in background. please open the app on the target device.",
+            headers={"X-Error-Code": "HOST_NOT_READY"}
+        )
+    
     # Create signaling session
     session = session_store.create_session(
         target_device_id=row["target_device_id"],
@@ -967,3 +1147,110 @@ async def remote_reject(
     conn.close()
     
     return JSONResponse({"ok": True})
+
+
+@router.post("/remote/cancel")
+async def remote_cancel(
+    req: RemoteApproveRequest,  # Same schema: request_id
+    user: Optional[TokenClaims] = Depends(get_optional_user)
+) -> JSONResponse:
+    """
+    Cancel a pending remote request (by requester).
+    Can be called by authenticated requester or with claim_token for anonymous.
+    """
+    conn = _db()
+    cur = conn.cursor()
+    
+    row = cur.execute(
+        "SELECT request_id, status, requester_account_id FROM remote_request WHERE request_id = ?",
+        (req.request_id,)
+    ).fetchone()
+    
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    if row["status"] != "pending":
+        conn.close()
+        raise HTTPException(status_code=409, detail=f"Request already {row['status']}")
+    
+    # Verify requester (if authenticated)
+    if user and row["requester_account_id"] and user.account_id != row["requester_account_id"]:
+        conn.close()
+        raise HTTPException(status_code=403, detail="Only requester can cancel")
+    
+    cur.execute(
+        "UPDATE remote_request SET status = 'cancelled' WHERE request_id = ?",
+        (req.request_id,)
+    )
+    conn.commit()
+    conn.close()
+    
+    return JSONResponse({"ok": True})
+
+
+# ==================== P0: SESSION TRACKING FOR DEBUG ====================
+
+class LastSessionResponse(BaseModel):
+    """Response for last session lookup."""
+    session_id: Optional[str] = None
+    request_id: Optional[str] = None
+    controller_device_id: Optional[str] = None
+    host_device_id: Optional[str] = None
+    status: Optional[str] = None
+    created_at: Optional[str] = None
+    expires_at: Optional[str] = None
+    found: bool = False
+
+
+@router.get("/remote/last-session", response_model=LastSessionResponse)
+async def remote_last_session(
+    device_id: Optional[str] = None,
+    request_id: Optional[str] = None,
+) -> LastSessionResponse:
+    """
+    Get full session details for debugging remote failures.
+    Query by device_id (returns most recent) or request_id (exact match).
+    """
+    conn = _db()
+    cur = conn.cursor()
+    
+    row = None
+    if request_id:
+        row = cur.execute(
+            """
+            SELECT request_id, session_id, requester_device_id, target_device_id,
+                   status, created_at, expires_at
+            FROM remote_request
+            WHERE request_id = ?
+            """,
+            (request_id,)
+        ).fetchone()
+    elif device_id:
+        row = cur.execute(
+            """
+            SELECT request_id, session_id, requester_device_id, target_device_id,
+                   status, created_at, expires_at
+            FROM remote_request
+            WHERE requester_device_id = ? OR target_device_id = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (device_id, device_id)
+        ).fetchone()
+    
+    conn.close()
+    
+    if not row:
+        return LastSessionResponse(found=False)
+    
+    return LastSessionResponse(
+        session_id=row["session_id"],
+        request_id=row["request_id"],
+        controller_device_id=row["requester_device_id"],
+        host_device_id=row["target_device_id"],
+        status=row["status"],
+        created_at=row["created_at"],
+        expires_at=row["expires_at"],
+        found=True,
+    )
