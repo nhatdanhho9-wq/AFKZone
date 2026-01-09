@@ -71,6 +71,19 @@ class _DeviceTabState extends State<DeviceTab> {
     });
     final list = await DeviceService.getDevices();
     if (!mounted) return;
+    
+    // Stable sort: pin "This device" at position 0
+    final myDeviceId = DeviceService.deviceId;
+    list.sort((a, b) {
+      final aIsThis = a.id == myDeviceId;
+      final bIsThis = b.id == myDeviceId;
+      if (aIsThis && !bIsThis) return -1; // a (This device) comes first
+      if (bIsThis && !aIsThis) return 1;  // b (This device) comes first
+      // Then sort by online status (online first), then by name
+      if (a.online != b.online) return a.online ? -1 : 1;
+      return a.name.compareTo(b.name);
+    });
+    
     setState(() {
       _devices = list;
       _devicesLoading = false;
@@ -581,7 +594,7 @@ class _DeviceTabState extends State<DeviceTab> {
         title: const Text('Rename Device'),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(labelText: 'Device Name', border: OutlineInputBorder()),
+          decoration: const InputDecoration(labelText: 'Display Name', border: OutlineInputBorder()),
           autofocus: true,
         ),
         actions: [
@@ -591,7 +604,7 @@ class _DeviceTabState extends State<DeviceTab> {
               Navigator.of(ctx).pop();
               final newName = controller.text.trim();
               if (newName.isNotEmpty && newName != d.name) {
-                final success = await DeviceService.updateDevice(d.id, name: newName);
+                final success = await DeviceService.updateDevice(d.id, displayName: newName);
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text(success ? 'Device renamed' : 'Failed to rename')),

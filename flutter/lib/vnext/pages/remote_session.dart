@@ -28,6 +28,10 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
   bool _isConnecting = true;
   bool _isConnected = false;
   String? _error;
+  // Debug state
+  String _iceState = 'new';
+  int _trackCount = 0;
+  bool _hasVideoTrack = false;
 
   @override
   void initState() {
@@ -44,14 +48,29 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
     );
 
     _webrtcService!.onRemoteStream = (stream) {
+      final videoTracks = stream.getVideoTracks();
+      final audioTracks = stream.getAudioTracks();
+      print('[RemoteSession] onRemoteStream: video=${videoTracks.length}, audio=${audioTracks.length}');
       setState(() {
         _remoteRenderer.srcObject = stream;
         _isConnected = true;
         _isConnecting = false;
+        _trackCount = videoTracks.length + audioTracks.length;
+        _hasVideoTrack = videoTracks.isNotEmpty;
       });
+      // Check for no video track error
+      if (videoTracks.isEmpty && !widget.isHost) {
+        setState(() {
+          _error = 'Connected but no video track received from host.';
+        });
+      }
     };
 
     _webrtcService!.onConnectionState = (state) {
+      print('[RemoteSession] ICE state: $state');
+      setState(() {
+        _iceState = state.toString().split('.').last;
+      });
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
         setState(() {
           _isConnected = true;
@@ -161,7 +180,7 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
         actions: [
           // Connection status indicator
           Padding(
-            padding: const EdgeInsets.only(right: 16),
+            padding: const EdgeInsets.only(right: 8),
             child: Row(
               children: [
                 Container(
@@ -175,9 +194,20 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  _isConnected ? 'Connected' : (_isConnecting ? 'Connecting...' : 'Disconnected'),
-                  style: const TextStyle(fontSize: 12),
+                Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _isConnected ? 'Connected' : (_isConnecting ? 'Connecting...' : 'Disconnected'),
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+                    ),
+                    // Debug: ICE state + track count
+                    Text(
+                      'ICE: $_iceState | Tracks: $_trackCount',
+                      style: TextStyle(fontSize: 9, color: Colors.grey.shade400),
+                    ),
+                  ],
                 ),
               ],
             ),

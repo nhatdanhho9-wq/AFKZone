@@ -198,14 +198,14 @@ class DeviceService {
   /// Update device settings via PATCH /devices/{id}
   static Future<bool> updateDevice(
     String deviceId, {
-    String? name,
+    String? displayName,
     bool? isFavorite,
     bool? alwaysRelay,
   }) async {
     try {
       final headers = await AuthService.getAuthHeaders();
       final body = <String, dynamic>{};
-      if (name != null) body['device_name'] = name;
+      if (displayName != null) body['display_name'] = displayName;
       if (isFavorite != null) body['is_favorite'] = isFavorite;
       if (alwaysRelay != null) body['always_relay'] = alwaysRelay;
       
@@ -269,7 +269,7 @@ class Device {
   factory Device.fromJson(Map<String, dynamic> json) {
     return Device(
       id: json['device_id'] ?? json['id'] ?? '',
-      name: json['device_name'] ?? json['name'] ?? '',
+      name: json['display_name'] ?? json['device_name'] ?? json['name'] ?? '',
       platform: json['device_type'] ?? json['platform'] ?? 'unknown',
       online: json['online'] ?? false,
       lastSeen: json['last_seen'],
