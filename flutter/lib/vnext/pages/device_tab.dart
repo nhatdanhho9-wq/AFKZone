@@ -392,7 +392,23 @@ class _DeviceTabState extends State<DeviceTab> {
     final isThis = (DeviceService.deviceId != null && d.id == DeviceService.deviceId);
     return InkWell(
       onTap: () {
-        if (isThis) return;
+        if (isThis) {
+          // Block self-remote with dialog
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Cannot Connect'),
+              content: const Text('Cannot connect to this device - you are already on it.'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+          return;
+        }
         _remoteIdController.text = d.id;
         _handleConnect();
       },
@@ -436,28 +452,158 @@ class _DeviceTabState extends State<DeviceTab> {
                 ],
               ),
             ),
+            // RustDesk-style 3-dots menu
             PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert, size: 20),
-              onSelected: (v) async {
-                switch (v) {
-                  case 'share_client':
-                    await _shareClient(d);
-                    break;
-                  case 'copy_id':
-                    _remoteIdController.text = d.id;
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Device ID copied to input')));
-                    break;
-                }
-              },
+              onSelected: (v) => _handleDeviceMenuAction(v, d, isThis),
               itemBuilder: (ctx) => [
-                const PopupMenuItem(value: 'share_client', child: Text('Share client (generate token)')),
-                const PopupMenuItem(value: 'copy_id', child: Text('Copy device ID')),
+                PopupMenuItem(
+                  value: 'connect',
+                  enabled: !isThis,
+                  child: Row(
+                    children: [
+                      Icon(Icons.play_arrow, size: 18, color: isThis ? Colors.grey : Colors.green),
+                      const SizedBox(width: 8),
+                      Text('Connect', style: TextStyle(color: isThis ? Colors.grey : null)),
+                    ],
+                  ),
+                ),
+                const PopupMenuDivider(),
+                const PopupMenuItem(
+                  value: 'rename',
+                  child: Row(
+                    children: [Icon(Icons.edit, size: 18), SizedBox(width: 8), Text('Rename')],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'favorite',
+                  child: Row(
+                    children: [
+                      Icon(d.isFavorite ? Icons.star : Icons.star_border, size: 18, color: Colors.amber),
+                      const SizedBox(width: 8),
+                      Text(d.isFavorite ? 'Remove Favorite' : 'Add to Favorites'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'relay',
+                  child: Row(
+                    children: [
+                      Icon(d.alwaysRelay ? Icons.check_box : Icons.check_box_outline_blank, size: 18),
+                      const SizedBox(width: 8),
+                      const Text('Always connect via relay'),
+                    ],
+                  ),
+                ),
+                const PopupMenuDivider(),
+                const PopupMenuItem(
+                  value: 'share_client',
+                  child: Row(
+                    children: [Icon(Icons.share, size: 18), SizedBox(width: 8), Text('Share client')],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'copy_id',
+                  child: Row(
+                    children: [Icon(Icons.copy, size: 18), SizedBox(width: 8), Text('Copy device ID')],
+                  ),
+                ),
               ],
             ),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _handleDeviceMenuAction(String action, Device d, bool isThis) async {
+    switch (action) {
+      case 'connect':
+        if (isThis) {
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Cannot Connect'),
+              content: const Text('Cannot connect to this device - you are already on it.'),
+              actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK'))],
+            ),
+          );
+        } else {
+          _remoteIdController.text = d.id;
+          _handleConnect();
+        }
+        break;
+      case 'rename':
+        _showRenameDialog(d);
+        break;
+      case 'favorite':
+        await _toggleFavorite(d);
+        break;
+      case 'relay':
+        await _toggleAlwaysRelay(d);
+        break;
+      case 'share_client':
+        await _shareClient(d);
+        break;
+      case 'copy_id':
+        _remoteIdController.text = d.id;
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Device ID copied to input')));
+        break;
+    }
+  }
+
+  void _showRenameDialog(Device d) {
+    final controller = TextEditingController(text: d.name);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename Device'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(labelText: 'Device Name', border: OutlineInputBorder()),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('CANCEL')),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              final newName = controller.text.trim();
+              if (newName.isNotEmpty && newName != d.name) {
+                final success = await DeviceService.updateDevice(d.id, name: newName);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(success ? 'Device renamed' : 'Failed to rename')),
+                  );
+                  if (success) _refreshDevices();
+                }
+              }
+            },
+            child: const Text('SAVE'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _toggleFavorite(Device d) async {
+    final success = await DeviceService.updateDevice(d.id, isFavorite: !d.isFavorite);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(success ? (d.isFavorite ? 'Removed from favorites' : 'Added to favorites') : 'Failed')),
+      );
+      if (success) _refreshDevices();
+    }
+  }
+
+  Future<void> _toggleAlwaysRelay(Device d) async {
+    final success = await DeviceService.updateDevice(d.id, alwaysRelay: !d.alwaysRelay);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(success ? 'Relay setting updated' : 'Failed')),
+      );
+      if (success) _refreshDevices();
+    }
   }
 
   Future<void> _shareClient(Device d) async {

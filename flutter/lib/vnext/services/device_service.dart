@@ -195,6 +195,35 @@ class DeviceService {
       print('[DeviceService] Host attach check error: $e');
     }
   }
+  /// Update device settings via PATCH /devices/{id}
+  static Future<bool> updateDevice(
+    String deviceId, {
+    String? name,
+    bool? isFavorite,
+    bool? alwaysRelay,
+  }) async {
+    try {
+      final headers = await AuthService.getAuthHeaders();
+      final body = <String, dynamic>{};
+      if (name != null) body['device_name'] = name;
+      if (isFavorite != null) body['is_favorite'] = isFavorite;
+      if (alwaysRelay != null) body['always_relay'] = alwaysRelay;
+      
+      if (body.isEmpty) return true;
+      
+      final response = await http.patch(
+        Uri.parse('${ApiConfig.baseUrl}/devices/$deviceId'),
+        headers: headers,
+        body: json.encode(body),
+      ).timeout(const Duration(seconds: 15));
+      
+      print('[DeviceService] updateDevice $deviceId: ${response.statusCode}');
+      return response.statusCode == 200;
+    } catch (e) {
+      print('[DeviceService] updateDevice error: $e');
+      return false;
+    }
+  }
 
   /// Get current device ID
   static String? get deviceId => _deviceId;
@@ -207,6 +236,8 @@ class Device {
   final String platform;
   final bool online;
   final String? lastSeen;
+  final bool isFavorite;
+  final bool alwaysRelay;
 
   Device({
     required this.id,
@@ -214,6 +245,8 @@ class Device {
     required this.platform,
     required this.online,
     this.lastSeen,
+    this.isFavorite = false,
+    this.alwaysRelay = false,
   });
 
   factory Device.fromJson(Map<String, dynamic> json) {
@@ -223,6 +256,8 @@ class Device {
       platform: json['device_type'] ?? json['platform'] ?? 'unknown',
       online: json['online'] ?? false,
       lastSeen: json['last_seen'],
+      isFavorite: json['is_favorite'] ?? json['favorite'] ?? false,
+      alwaysRelay: json['always_relay'] ?? json['relay'] ?? false,
     );
   }
 }
