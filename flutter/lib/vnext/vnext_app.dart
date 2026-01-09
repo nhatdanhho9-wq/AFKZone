@@ -140,11 +140,21 @@ class _VNextAppState extends State<VNextApp> {
         try {
           // 1) Check for pending requests for this account and show notification
           final pending = await RemoteService.getPending();
+          final myDeviceId = DeviceService.deviceId;
           for (final req in pending) {
             if (!_shownPendingNotifications.contains(req.requestId)) {
               _shownPendingNotifications.add(req.requestId);
               if (mounted) {
-                _showPendingNotification(req);
+                // If this device is the share creator (targetDeviceId) → popup approve dialog
+                // Else → just show badge notification
+                final isShareCreator = myDeviceId != null && 
+                    req.targetDeviceId != null && 
+                    req.targetDeviceId == myDeviceId;
+                if (isShareCreator) {
+                  _showApproveDialog(req);
+                } else {
+                  _showPendingBadge(req);
+                }
               }
             }
           }
@@ -180,34 +190,145 @@ class _VNextAppState extends State<VNextApp> {
     });
   }
 
-  void _showPendingNotification(PendingRequest req) {
+  /// Popup approve dialog for share creator device
+  void _showApproveDialog(PendingRequest req) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.person_add, color: Colors.green),
+            const SizedBox(width: 12),
+            const Text('Remote Access Request'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Device "${req.requesterDeviceId?.substring(0, 8) ?? "unknown"}..." is requesting access.',
+              style: const TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Created: ${req.createdAt}',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              final success = await RemoteService.reject(req.requestId);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(success ? 'Request rejected' : 'Failed to reject')),
+                );
+              }
+            },
+            child: const Text('REJECT', style: TextStyle(color: Colors.red)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              final result = await RemoteService.approve(req.requestId);
+              if (mounted) {
+                if (result.success) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Request approved'), backgroundColor: Colors.green),
+                  );
+                } else if (result.error?.contains('password') == true) {
+                  // Server requires password → show password dialog
+                  _showPasswordDialog(req);
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Failed: ${result.error}')),
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            child: const Text('APPROVE', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Badge-only notification for non-share-creator devices
+  void _showPendingBadge(PendingRequest req) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
           children: [
-            const Icon(Icons.notifications_active, color: Colors.white),
+            const Icon(Icons.info_outline, color: Colors.white),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                'New remote request from ${req.requesterDeviceId?.substring(0, 8) ?? "unknown"}...',
-                style: const TextStyle(fontWeight: FontWeight.w500),
+                'New remote request pending (approve on device that created the share token)',
+                style: const TextStyle(fontSize: 12),
               ),
             ),
           ],
         ),
-        backgroundColor: Colors.green.shade700,
+        backgroundColor: Colors.blue.shade700,
         behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 5),
-        action: SnackBarAction(
-          label: 'VIEW',
-          textColor: Colors.white,
-          onPressed: () {
-            // Navigate to pending requests screen
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const PendingRequestsScreen()),
-            );
-          },
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
+  /// Password dialog for dt2 when server requires password
+  void _showPasswordDialog(PendingRequest req) {
+    final passwordController = TextEditingController();
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Password Required'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Enter the connection password to approve this request.'),
+            const SizedBox(height: 16),
+            TextField(
+              controller: passwordController,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Password',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('CANCEL'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              final password = passwordController.text.trim();
+              if (password.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Password cannot be empty')),
+                );
+                return;
+              }
+              // TODO: Call approve with password when backend supports it
+              // For now, show pending
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Password submitted (backend integration pending)')),
+              );
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            child: const Text('SUBMIT', style: TextStyle(color: Colors.white)),
+          ),
+        ],
       ),
     );
   }

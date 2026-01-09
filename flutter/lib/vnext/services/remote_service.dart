@@ -317,6 +317,7 @@ class PendingRequest {
   final String? requesterAccountId;
   final String? requesterDeviceId;
   final String? requesterName;
+  final String? targetDeviceId; // share_creator_device_id - the device that created the share token
   final String status;
   final String createdAt;
 
@@ -325,6 +326,7 @@ class PendingRequest {
     this.requesterAccountId,
     this.requesterDeviceId,
     this.requesterName,
+    this.targetDeviceId,
     required this.status,
     required this.createdAt,
   });
@@ -334,7 +336,8 @@ class PendingRequest {
       requestId: json['request_id'] ?? '',
       requesterAccountId: json['requester_account_id'],
       requesterDeviceId: json['requester_device_id'],
-      requesterName: null,
+      requesterName: json['requester_name'],
+      targetDeviceId: json['target_device_id'] ?? json['share_creator_device_id'],
       status: json['status'] ?? 'pending',
       createdAt: json['created_at'] ?? '',
     );
