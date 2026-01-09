@@ -69,6 +69,7 @@ class RemoteService {
     int maxUses = 1,
   }) async {
     try {
+      final creatorDeviceId = DeviceService.deviceId ?? await DeviceService.ensureDeviceId();
       final headers = await AuthService.getAuthHeaders();
       final response = await http.post(
         Uri.parse('${ApiConfig.baseUrl}/share/create'),
@@ -77,6 +78,7 @@ class RemoteService {
           'device_id': deviceId,
           'expires_hours': expiresHours.clamp(1, 168),
           'max_uses': maxUses.clamp(1, 100),
+          'created_by_device_id': creatorDeviceId,
         }),
       ).timeout(const Duration(seconds: 15));
 

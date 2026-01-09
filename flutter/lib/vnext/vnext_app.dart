@@ -5,6 +5,7 @@ import 'pages/purchase_tab.dart';
 import 'pages/me_tab.dart';
 import 'pages/login_screen.dart';
 import 'pages/remote_session.dart';
+import 'pages/pending_requests.dart';
 import 'models/ui_config.dart';
 import 'services/config_service.dart';
 import 'services/auth_service.dart';
@@ -108,13 +109,26 @@ class _VNextAppState extends State<VNextApp> {
   }
 
   void _onLogout() async {
+    // Stop all background services
     DeviceService.stopHeartbeat();
+    DeviceService.stopHostAttachPolling();
+    
+    // Clear auth and caches
     await AuthService.logout();
+    
+    // Clear device cache (for account switch)
+    await DeviceService.clearDeviceCache();
+    
     setState(() {
       _isLoggedIn = false;
     });
     _pendingWatcherStarted = false;
+    _pendingDialogOpen = false;
+    print('[VNextApp] Logged out and cleared all caches');
   }
+
+  // Track shown pending notifications to avoid duplicates
+  final Set<String> _shownPendingNotifications = {};
 
   void _startPendingWatcher() {
     if (_pendingWatcherStarted) return;
@@ -124,18 +138,19 @@ class _VNextAppState extends State<VNextApp> {
     Future<void>(() async {
       while (mounted && _isLoggedIn) {
         try {
-          // 1) If there is a pending request for this account, show a popup on the device that is the TARGET.
+          // 1) Check for pending requests for this account and show notification
           final pending = await RemoteService.getPending();
-          final myDeviceId = DeviceService.deviceId;
-          final forThisDevice = myDeviceId == null
-              ? null
-              : pending.where((r) => r.requesterDeviceId != null).toList();
-
-          // NOTE: Backend pending list doesn't include target_device_id per item in our client model.
-          // Keep MVP: rely on user opening Pending screen for approvals.
-          // Future: extend model + filter only requests targeting this device.
+          for (final req in pending) {
+            if (!_shownPendingNotifications.contains(req.requestId)) {
+              _shownPendingNotifications.add(req.requestId);
+              if (mounted) {
+                _showPendingNotification(req);
+              }
+            }
+          }
 
           // 2) Host attach loop: try to attach if a session is pending for this device.
+          final myDeviceId = DeviceService.deviceId;
           if (myDeviceId != null) {
             final attach = await RemoteService.hostAttach(hostDeviceId: myDeviceId);
             if (attach.success && attach.sessionId != null && attach.hostToken != null) {
@@ -163,6 +178,38 @@ class _VNextAppState extends State<VNextApp> {
         }
       }
     });
+  }
+
+  void _showPendingNotification(PendingRequest req) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.notifications_active, color: Colors.white),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'New remote request from ${req.requesterDeviceId?.substring(0, 8) ?? "unknown"}...',
+                style: const TextStyle(fontWeight: FontWeight.w500),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: Colors.green.shade700,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 5),
+        action: SnackBarAction(
+          label: 'VIEW',
+          textColor: Colors.white,
+          onPressed: () {
+            // Navigate to pending requests screen
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const PendingRequestsScreen()),
+            );
+          },
+        ),
+      ),
+    );
   }
 
   List<TabConfig> get _visibleTabs {

@@ -13,12 +13,6 @@ class DeviceService {
   static String? _deviceId;
   static Timer? _heartbeatTimer;
 
-  static String _generateDeviceId() {
-    final rnd = Random.secure();
-    final bytes = List<int>.generate(16, (_) => rnd.nextInt(256));
-    return base64Url.encode(bytes).replaceAll('=', '');
-  }
-
   static Future<String> _getOrCreateDeviceId() async {
     if (_deviceId != null) return _deviceId!;
     final prefs = await SharedPreferences.getInstance();
@@ -27,15 +21,18 @@ class DeviceService {
       _deviceId = existing;
       return existing;
     }
-    final created = _generateDeviceId();
-    await prefs.setString(_deviceIdKey, created);
-    _deviceId = created;
-    return created;
+    // No device id yet (first login). Let server assign on /devices/register.
+    return '';
   }
 
   /// Ensure we have a stable device_id (even before login).
   static Future<String> ensureDeviceId() async {
-    return await _getOrCreateDeviceId();
+    final id = await _getOrCreateDeviceId();
+    if (id.isNotEmpty) return id;
+    // Not registered yet (guest / pre-login). Use a temporary id for request attribution.
+    final rnd = Random.secure();
+    final bytes = List<int>.generate(16, (_) => rnd.nextInt(256));
+    return base64Url.encode(bytes).replaceAll('=', '');
   }
 
   /// Register device with server
@@ -50,7 +47,7 @@ class DeviceService {
         Uri.parse('${ApiConfig.baseUrl}/devices/register'),
         headers: headers,
         body: json.encode({
-          'device_id': deviceId,
+          if (deviceId.isNotEmpty) 'device_id': deviceId,
           'device_name': deviceName,
           'device_type': platform ?? 'android',
         }),
@@ -59,7 +56,12 @@ class DeviceService {
       final data = json.decode(response.body);
       
       if (response.statusCode == 200 || response.statusCode == 201) {
-        _deviceId = data['device_id'] ?? deviceId;
+        final newId = (data['device_id'] ?? '').toString();
+        if (newId.isNotEmpty) {
+          _deviceId = newId;
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(_deviceIdKey, newId);
+        }
         print('[DeviceService] Registered: $_deviceId');
         return DeviceResult(success: true, deviceId: _deviceId);
       } else {
@@ -126,6 +128,14 @@ class DeviceService {
   static void stopHeartbeat() {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
+  }
+
+  /// Clear device cache (for account switch)
+  static Future<void> clearDeviceCache() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_deviceIdKey);
+    _deviceId = null;
+    print('[DeviceService] Device cache cleared');
   }
 
   // Host auto-attach polling

@@ -23,6 +23,7 @@ class _DeviceTabState extends State<DeviceTab> {
   String? _pendingRequestId;
   String? _claimToken;
   bool _devicesLoading = false;
+  bool _isLoggedIn = false;
   List<Device> _devices = [];
 
   List<ActionConfig> get _quickActions {
@@ -60,10 +61,14 @@ class _DeviceTabState extends State<DeviceTab> {
       setState(() {
         _devices = [];
         _devicesLoading = false;
+        _isLoggedIn = false;
       });
       return;
     }
-    setState(() => _devicesLoading = true);
+    setState(() {
+      _devicesLoading = true;
+      _isLoggedIn = true;
+    });
     final list = await DeviceService.getDevices();
     if (!mounted) return;
     setState(() {
@@ -344,9 +349,25 @@ class _DeviceTabState extends State<DeviceTab> {
             if (_devicesLoading)
               const Center(child: Padding(padding: EdgeInsets.all(16), child: CircularProgressIndicator()))
             else if (_devices.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(12),
-                child: Text('No devices found (login required).', style: TextStyle(color: Colors.grey)),
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  children: [
+                    Icon(
+                      _isLoggedIn ? Icons.devices : Icons.login,
+                      size: 40,
+                      color: Colors.grey.shade400,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _isLoggedIn
+                          ? 'No devices registered yet.\nThis device will appear after sync.'
+                          : 'Login required to view your devices.',
+                      style: TextStyle(color: Colors.grey.shade600),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
               )
             else
               GridView.builder(
@@ -379,8 +400,11 @@ class _DeviceTabState extends State<DeviceTab> {
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey.shade200),
-          color: Colors.white,
+          border: Border.all(
+            color: isThis ? Colors.green : Colors.grey.shade200,
+            width: isThis ? 2 : 1,
+          ),
+          color: isThis ? Colors.green.shade50 : Colors.white,
         ),
         child: Row(
           children: [
