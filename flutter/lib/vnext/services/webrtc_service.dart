@@ -145,8 +145,10 @@ class WebRTCService {
   /// Handle incoming signaling message
   void _handleSignalingMessage(dynamic message) async {
     try {
+      print('[WebRTC] <<< RAW WS MESSAGE: $message');
       final data = json.decode(message);
       final type = data['type'];
+      print('[WebRTC] <<< Parsed type=$type, full data=$data');
       final payload = (data['payload'] is Map<String, dynamic>)
           ? (data['payload'] as Map<String, dynamic>)
           : <String, dynamic>{};
@@ -167,8 +169,11 @@ class WebRTCService {
         // 2-step host_ready flow
         case 'enable_screen_capture':
           // Host receives: show MediaProjection prompt
-          final requestId = payload['request_id']?.toString() ?? '';
-          print('[WebRTC] Host: enable_screen_capture, request_id=$requestId');
+          // Try multiple field names for request_id
+          final requestId = payload['request_id']?.toString() ?? 
+                           data['request_id']?.toString() ?? 
+                           '';
+          print('[WebRTC] >>> HOST: enable_screen_capture, request_id=$requestId, payload=$payload');
           onEnableScreenCapture?.call(requestId);
           break;
         case 'wait_host_ready':

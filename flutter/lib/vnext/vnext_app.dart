@@ -237,7 +237,18 @@ class _VNextAppState extends State<VNextApp> {
               if (mounted) {
                 if (result.success) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Request approved'), backgroundColor: Colors.green),
+                    const SnackBar(content: Text('Request approved - starting host session...'), backgroundColor: Colors.green),
+                  );
+                  // Navigate to RemoteSessionScreen as HOST
+                  print('[VNextApp] Navigating to RemoteSessionScreen as HOST for session=${result.sessionId}, request=${req.requestId}');
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => RemoteSessionScreen(
+                        sessionId: result.sessionId ?? req.requestId,
+                        isHost: true,
+                        wsToken: result.hostToken,
+                      ),
+                    ),
                   );
                 } else if (result.error?.contains('password') == true) {
                   // Server requires password → show password dialog

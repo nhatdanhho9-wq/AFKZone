@@ -186,10 +186,12 @@ class RemoteService {
       final data = json.decode(response.body);
       
       if (response.statusCode == 200) {
+        print('[RemoteService] approve success: session=${data['session_id']}, controllerToken=${data['controller_token']}, hostToken=${data['host_token']}');
         return ApproveResult(
           success: true,
           sessionId: data['session_id'],
           controllerToken: data['controller_token'],
+          hostToken: data['host_token'],
         );
       } else {
         return ApproveResult(success: false, error: _asString(data['detail']).isNotEmpty ? _asString(data['detail']) : 'Approve failed');
@@ -384,9 +386,10 @@ class ApproveResult {
   final bool success;
   final String? sessionId;
   final String? controllerToken;
+  final String? hostToken;
   final String? error;
 
-  ApproveResult({required this.success, this.sessionId, this.controllerToken, this.error});
+  ApproveResult({required this.success, this.sessionId, this.controllerToken, this.hostToken, this.error});
 }
 
 /// TURN credentials
