@@ -234,6 +234,23 @@ class RemoteService {
     }
   }
 
+  /// Host signals ready after MediaProjection enabled (2-step flow)
+  static Future<bool> hostReady(String requestId, {bool screenCapture = true}) async {
+    try {
+      final headers = await AuthService.getAuthHeaders();
+      final response = await http.post(
+        Uri.parse('${ApiConfig.baseUrl}/remote/host-ready/$requestId?screen_capture=$screenCapture'),
+        headers: headers,
+      ).timeout(Duration(seconds: 15));
+
+      print('[RemoteService] hostReady $requestId: ${response.statusCode}');
+      return response.statusCode == 200;
+    } catch (e) {
+      print('[RemoteService] hostReady error: $e');
+      return false;
+    }
+  }
+
   /// Get TURN credentials for a session
   static Future<TurnCredentials?> getTurnCredentials(String sessionId) async {
     try {

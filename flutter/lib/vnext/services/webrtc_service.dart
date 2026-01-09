@@ -20,6 +20,11 @@ class WebRTCService {
   Function(RTCPeerConnectionState)? onConnectionState;
   Function(String)? onError;
   
+  // 2-step host_ready callbacks
+  Function(String requestId)? onEnableScreenCapture; // Host receives: show MediaProjection
+  Function()? onWaitHostReady; // Controller receives: show waiting UI
+  Function(String sessionId, String controllerToken)? onHostReady; // Controller receives: auto-continue SDP
+  
   WebRTCService({
     required this.sessionId,
     required this.isHost,
@@ -158,6 +163,25 @@ class WebRTCService {
           break;
         case 'control_ready':
           print('[WebRTC] Control ready');
+          break;
+        // 2-step host_ready flow
+        case 'enable_screen_capture':
+          // Host receives: show MediaProjection prompt
+          final requestId = payload['request_id']?.toString() ?? '';
+          print('[WebRTC] Host: enable_screen_capture, request_id=$requestId');
+          onEnableScreenCapture?.call(requestId);
+          break;
+        case 'wait_host_ready':
+          // Controller receives: show waiting UI, DO NOT SDP yet
+          print('[WebRTC] Controller: wait_host_ready');
+          onWaitHostReady?.call();
+          break;
+        case 'host_ready':
+          // Controller receives: auto-continue SDP with session_id + controller_token
+          final sid = payload['session_id']?.toString() ?? '';
+          final ctoken = payload['controller_token']?.toString() ?? '';
+          print('[WebRTC] Controller: host_ready, session_id=$sid');
+          onHostReady?.call(sid, ctoken);
           break;
         case 'remote_cancelled':
         case 'remote_rejected':

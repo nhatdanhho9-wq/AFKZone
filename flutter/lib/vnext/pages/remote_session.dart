@@ -32,6 +32,9 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
   String _iceState = 'new';
   int _trackCount = 0;
   bool _hasVideoTrack = false;
+  // 2-step host_ready flow state
+  bool _waitingForHostReady = false;
+  String? _pendingRequestIdForHost;
 
   @override
   void initState() {
@@ -114,6 +117,33 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
       }
     };
 
+    // 2-step host_ready flow callbacks
+    _webrtcService!.onEnableScreenCapture = (requestId) {
+      // Host receives: show MediaProjection dialog
+      setState(() {
+        _pendingRequestIdForHost = requestId;
+      });
+      _showEnableScreenCaptureDialog(requestId);
+    };
+
+    _webrtcService!.onWaitHostReady = () {
+      // Controller: show waiting UI, do NOT SDP yet
+      setState(() {
+        _waitingForHostReady = true;
+        _isConnecting = true;
+      });
+    };
+
+    _webrtcService!.onHostReady = (sessionId, controllerToken) async {
+      // Controller: auto-continue SDP
+      print('[RemoteSession] Host ready! session=$sessionId, starting SDP...');
+      setState(() {
+        _waitingForHostReady = false;
+      });
+      // Create SDP offer and start connection
+      await _webrtcService!.startViewer();
+    };
+
     // Initialize WebRTC
     final initialized = await _webrtcService!.initialize();
     if (!initialized) {
@@ -174,6 +204,69 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
         },
       });
       await _webrtcService!.startHost(stream);
+    }
+  }
+
+  /// Host: show MediaProjection dialog when server signals enable_screen_capture
+  void _showEnableScreenCaptureDialog(String requestId) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.screen_share, color: Colors.green),
+            const SizedBox(width: 12),
+            const Text('Screen Sharing Request'),
+          ],
+        ),
+        content: const Text(
+          'A remote device wants to view your screen.\n\nTap "BẮT ĐẦU NGAY" to enable screen capture.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              _disconnect();
+            },
+            child: const Text('Cancel', style: TextStyle(color: Colors.red)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              // Start MediaProjection and signal host_ready
+              await _enableScreenCaptureAndNotify(requestId);
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            child: const Text('BẮT ĐẦU NGAY', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Host: trigger MediaProjection and POST /remote/host-ready
+  Future<void> _enableScreenCaptureAndNotify(String requestId) async {
+    try {
+      // Request MediaProjection
+      final stream = await navigator.mediaDevices.getDisplayMedia({
+        'audio': false,
+        'video': {
+          'mandatory': {'minWidth': 720, 'minHeight': 1280, 'minFrameRate': 15},
+        },
+      });
+      
+      // Start hosting with the captured stream
+      await _webrtcService!.startHost(stream);
+      
+      // Notify server that host is ready
+      await RemoteService.hostReady(requestId, screenCapture: true);
+      print('[RemoteSession] Host ready signaled for request $requestId');
+    } catch (e) {
+      print('[RemoteSession] Enable screen capture error: $e');
+      setState(() {
+        _error = 'Failed to enable screen capture: $e';
+      });
     }
   }
 
@@ -245,15 +338,18 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
               objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
             )
           else if (_isConnecting)
-            const Center(
+            Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  CircularProgressIndicator(color: Colors.green),
-                  SizedBox(height: 16),
+                  const CircularProgressIndicator(color: Colors.green),
+                  const SizedBox(height: 16),
                   Text(
-                    'Connecting to remote device...',
-                    style: TextStyle(color: Colors.white),
+                    _waitingForHostReady 
+                        ? 'Waiting for host to enable screen capture...'
+                        : 'Connecting to remote device...',
+                    style: const TextStyle(color: Colors.white),
+                    textAlign: TextAlign.center,
                   ),
                 ],
               ),
