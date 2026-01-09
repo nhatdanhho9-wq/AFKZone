@@ -27,6 +27,22 @@ jobs:
         run: |
           cd afkzone2
           python tools/check_clean_room.py
+
+  secrets-scan:
+    name: No Secrets Policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Scan for secrets
+        run: |
+          cd afkzone2
+          python tools/check_secrets.py
         
   dependency-allowlist:
     name: Dependency Allowlist Check
@@ -118,7 +134,7 @@ jobs:
   all-checks-pass:
     name: All Checks Pass
     runs-on: ubuntu-latest
-    needs: [clean-room-scan, dependency-allowlist, license-scan, backend-lint, flutter-check]
+    needs: [clean-room-scan, secrets-scan, dependency-allowlist, license-scan, backend-lint, flutter-check]
     steps:
       - name: All checks passed
         run: echo "✅ All afkzone2 CI checks passed - ready for merge/tag"
