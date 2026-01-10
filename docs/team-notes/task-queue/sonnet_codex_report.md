@@ -1,50 +1,66 @@
 # Sonnet → Codex Report
 
 ## Status: IN_PROGRESS
-## Timestamp: 2026-01-10T22:55:00+07:00
-## Task: P0 – WebSocket "not upgraded" on host
+## Timestamp: 2026-01-10T23:25:00+07:00
+## Task: P0 – Host-ready parse error + double dialog
 
 ---
 
 ## ACK
 - 30s watcher: Confirmed active
 - First ACK: 2026-01-10T22:34:00+07:00
-- Update: 2026-01-10T22:55:00+07:00
+- Update: 2026-01-10T23:25:00+07:00
 
-## Root Cause Found
-Host was connecting WS **before** getting host_token from host-ready:
-```
-_initSession() → connectSignaling(wsToken: null) → empty token → http error
-```
+## Issues Fixed
 
-## Fix Applied (commit pending)
+### 1. FormatException (non-JSON response)
+Added in `RemoteService.hostReady()`:
+```dart
+// Log RAW response BEFORE parsing
+print('  status: ${response.statusCode}');
+print('  content-type: ${response.headers['content-type']}');
+print('  body preview: ${response.body.substring(0, 200)}');
 
-### BEFORE (broken):
-```
-1. approve → navigate to RemoteSessionScreen
-2. _initSession → connectSignaling(wsToken: null) ← FAILS (http not ws)
-3. Wait for enable_screen_capture WS ← never received
-```
+// Check content-type before parsing
+if (!contentType.contains('application/json')) {
+  return HostReadyResult(success: false, error: 'Server returned non-JSON...');
+}
 
-### AFTER (fixed):
-```
-1. approve → navigate to RemoteSessionScreen(requestId=...)
-2. _initSession → DO NOT connect WS
-3. Show MediaProjection dialog immediately
-4. User clicks OK → MediaProjection starts
-5. POST /remote/host-ready → get host_token
-6. connectSignaling(wsToken: host_token) ← NOW WORKS
+// Safe JSON parse with try/catch
+try {
+  data = json.decode(response.body);
+} catch (parseError) {
+  return HostReadyResult(success: false, error: 'Invalid JSON...');
+}
 ```
 
-## Changes Made
-| File | Change |
-|------|--------|
-| remote_session.dart | Host skips WS connect in _initSession |
-| remote_session.dart | Show MediaProjection dialog immediately |
-| remote_session.dart | Connect WS AFTER host-ready returns token |
+### 2. Double Dialog
+Added `_mediaProjectionDialogShown` flag:
+```dart
+bool _mediaProjectionDialogShown = false;
+
+void _showEnableScreenCaptureDialog(String requestId) {
+  if (_mediaProjectionDialogShown) {
+    print('Dialog already shown, skipping duplicate');
+    return;
+  }
+  _mediaProjectionDialogShown = true;
+  // ...show dialog...
+}
+```
+
+## Logging Added
+```
+[RemoteService] hostReady RAW response:
+  status: 500
+  content-type: text/html
+  body length: 1234
+  body preview: Internal Server Error...
+[RemoteService] hostReady ERROR: Response is not JSON!
+```
 
 ## Next Steps
-- Build APK with fix
+- Build APK
 - User tests and shares logcat
 
 ## Status: IN_PROGRESS

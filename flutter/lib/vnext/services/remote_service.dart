@@ -256,16 +256,40 @@ class RemoteService {
   static Future<HostReadyResult> hostReady(String requestId, {bool screenCapture = true}) async {
     try {
       final headers = await AuthService.getAuthHeaders();
-      print('[RemoteService] hostReady: calling /remote/host-ready/$requestId?screen_capture=$screenCapture');
+      final url = '${ApiConfig.baseUrl}/remote/host-ready/$requestId?screen_capture=$screenCapture';
+      print('[RemoteService] hostReady: calling $url');
       final response = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/remote/host-ready/$requestId?screen_capture=$screenCapture'),
+        Uri.parse(url),
         headers: headers,
       ).timeout(Duration(seconds: 15));
 
-      print('[RemoteService] hostReady response: status=${response.statusCode}, body=${response.body}');
+      // Log RAW response BEFORE any parsing
+      print('[RemoteService] hostReady RAW response:');
+      print('  status: ${response.statusCode}');
+      print('  content-type: ${response.headers['content-type']}');
+      print('  body length: ${response.body.length}');
+      print('  body preview: ${response.body.length > 200 ? response.body.substring(0, 200) : response.body}');
+      
+      // Check content-type before parsing
+      final contentType = response.headers['content-type'] ?? '';
+      if (!contentType.contains('application/json')) {
+        print('[RemoteService] hostReady ERROR: Response is not JSON! content-type=$contentType');
+        return HostReadyResult(
+          success: false, 
+          error: 'Server returned non-JSON response (${response.statusCode}): ${response.body.length > 100 ? response.body.substring(0, 100) : response.body}'
+        );
+      }
+      
+      // Safe JSON parse
+      dynamic data;
+      try {
+        data = json.decode(response.body);
+      } catch (parseError) {
+        print('[RemoteService] hostReady JSON parse error: $parseError');
+        return HostReadyResult(success: false, error: 'Invalid JSON: ${response.body.length > 100 ? response.body.substring(0, 100) : response.body}');
+      }
       
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
         // Try multiple field names for host_token
         final hostToken = data['host_token'] ?? data['ws_token'] ?? data['token'];
         final sessionId = data['session_id'] ?? data['sessionId'];
@@ -285,11 +309,10 @@ class RemoteService {
           signalingWsUrl: signalingWsUrl,
         );
       } else {
-        final data = json.decode(response.body);
-        return HostReadyResult(success: false, error: data['detail']?.toString() ?? 'Host ready failed');
+        return HostReadyResult(success: false, error: data['detail']?.toString() ?? 'Host ready failed (${response.statusCode})');
       }
     } catch (e) {
-      print('[RemoteService] hostReady error: $e');
+      print('[RemoteService] hostReady exception: $e');
       return HostReadyResult(success: false, error: e.toString());
     }
   }

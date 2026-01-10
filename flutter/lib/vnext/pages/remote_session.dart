@@ -37,6 +37,8 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
   // 2-step host_ready flow state
   bool _waitingForHostReady = false;
   String? _pendingRequestIdForHost;
+  // Prevent duplicate MediaProjection dialog
+  bool _mediaProjectionDialogShown = false;
 
   @override
   void initState() {
@@ -213,6 +215,13 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
 
   /// Host: show MediaProjection dialog when server signals enable_screen_capture
   void _showEnableScreenCaptureDialog(String requestId) {
+    // Prevent duplicate dialogs
+    if (_mediaProjectionDialogShown) {
+      print('[RemoteSession] >>> HOST: Dialog already shown, skipping duplicate for request=$requestId');
+      return;
+    }
+    _mediaProjectionDialogShown = true;
+    
     print('[RemoteSession] >>> HOST: Showing MediaProjection dialog for request=$requestId');
     showDialog(
       context: context,
