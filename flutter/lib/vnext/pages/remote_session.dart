@@ -156,35 +156,17 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
     }
 
     String? token = widget.wsToken;
-    // If hosting and token not provided, attach to session to obtain host_token.
-    if (widget.isHost && token == null) {
-      final hostDeviceId = DeviceService.deviceId;
-      if (hostDeviceId == null) {
-        setState(() {
-          _error = 'Device not registered. Please login again.';
-          _isConnecting = false;
-        });
-        return;
-      }
-      final attach = await RemoteService.hostAttach(hostDeviceId: hostDeviceId);
-      if (!attach.success || attach.hostToken == null) {
-        setState(() {
-          _error = 'Host attach failed: ${attach.error}';
-          _isConnecting = false;
-        });
-        return;
-      }
-      token = attach.hostToken!;
-    }
-
-    // Connect signaling using proper token (controller_token or host_token)
+    // Host MUST have token from approve response, no fallback to hostAttach
     if (token == null) {
+      print('[RemoteSession] ERROR: No wsToken provided!');
       setState(() {
-        _error = 'Missing signaling token';
+        _error = 'Missing signaling token. Please re-approve the request.';
         _isConnecting = false;
       });
       return;
     }
+    
+    print('[RemoteSession] Connecting to signaling with token: ${token.substring(0, 20)}...');
     final connected = await _webrtcService!.connectSignaling(wsToken: token);
     if (!connected) {
       setState(() {
@@ -193,18 +175,16 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
       });
       return;
     }
+    print('[RemoteSession] Signaling connected, isHost=${widget.isHost}');
 
-    // Start as viewer/host
+    // For controller: start viewer immediately
+    // For host: wait for enable_screen_capture WS message (handled by onEnableScreenCapture callback)
     if (!widget.isHost) {
       await _webrtcService!.startViewer();
     } else {
-      final stream = await navigator.mediaDevices.getDisplayMedia({
-        'audio': false,
-        'video': {
-          'mandatory': {'minWidth': 720, 'minHeight': 1280, 'minFrameRate': 15},
-        },
-      });
-      await _webrtcService!.startHost(stream);
+      print('[RemoteSession] HOST: Waiting for enable_screen_capture WS message...');
+      // Do NOT auto-start MediaProjection here!
+      // The onEnableScreenCapture callback will handle showing the dialog
     }
   }
 
