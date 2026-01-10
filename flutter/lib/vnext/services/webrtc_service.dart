@@ -64,6 +64,12 @@ class WebRTCService {
         print('[WebRTC] Connection state: $state');
         onConnectionState?.call(state);
       };
+      
+      // ICE connection state handler with logging and server reporting
+      _peerConnection!.onIceConnectionState = (RTCIceConnectionState state) {
+        print('[WebRTC] ICE connection state: $state');
+        _reportIceStateToServer(state.toString());
+      };
 
       print('[WebRTC] Initialized with TURN: ${turnCreds.urls}');
       return true;
@@ -274,6 +280,19 @@ class WebRTCService {
 
   /// ICE candidate event
   void _onIceCandidate(RTCIceCandidate candidate) {
+    // Log ICE candidate details
+    final candidateStr = candidate.candidate ?? '';
+    final isRelay = candidateStr.contains('relay');
+    final isSrflx = candidateStr.contains('srflx');
+    final isHost = candidateStr.contains('host');
+    String candidateType = 'unknown';
+    if (isRelay) candidateType = 'relay (TURN)';
+    else if (isSrflx) candidateType = 'srflx (STUN)';
+    else if (isHost) candidateType = 'host (local)';
+    
+    print('[WebRTC] ICE candidate: type=$candidateType, sdpMid=${candidate.sdpMid}');
+    print('[WebRTC] ICE candidate raw: ${candidateStr.length > 100 ? candidateStr.substring(0, 100) : candidateStr}...');
+    
     _sendSignaling({
       'type': 'ice_candidate',
       'payload': {
@@ -293,6 +312,16 @@ class WebRTCService {
     }
   }
 
+  /// Report ICE state to server for diagnostics
+  Future<void> _reportIceStateToServer(String iceState) async {
+    try {
+      print('[WebRTC] Reporting ICE state to server: $iceState');
+      await RemoteService.reportIceState(sessionId, iceState);
+    } catch (e) {
+      print('[WebRTC] Failed to report ICE state: $e');
+    }
+  }
+  
   /// Send signaling message
   void _sendSignaling(Map<String, dynamic> data) {
     _wsChannel?.sink.add(json.encode(data));

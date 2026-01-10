@@ -317,6 +317,26 @@ class RemoteService {
     }
   }
 
+  /// Report ICE state to server for diagnostics
+  /// POST /sessions/{id}/ice-state
+  static Future<void> reportIceState(String sessionId, String iceState) async {
+    try {
+      final headers = await AuthService.getAuthHeaders();
+      final url = '${ApiConfig.baseUrl}/sessions/$sessionId/ice-state';
+      print('[RemoteService] reportIceState: $url, state=$iceState');
+      
+      final response = await http.post(
+        Uri.parse(url),
+        headers: headers,
+        body: json.encode({'ice_state': iceState}),
+      ).timeout(Duration(seconds: 5));
+      
+      print('[RemoteService] reportIceState: status=${response.statusCode}');
+    } catch (e) {
+      print('[RemoteService] reportIceState error: $e');
+    }
+  }
+
   /// Get TURN credentials for a session
   static Future<TurnCredentials?> getTurnCredentials(String sessionId) async {
     try {
