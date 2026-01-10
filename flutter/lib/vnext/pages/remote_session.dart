@@ -157,11 +157,13 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
       return;
     }
 
-    // NEW CONTRACT: Host does NOT receive token from approve
-    // Host will connect without token, receive enable_screen_capture,
-    // call host-ready, THEN get token and reconnect
+    // NEW CONTRACT: Host does NOT connect WS until AFTER host-ready returns token
     if (widget.isHost) {
-      // Host mode: connect without token, wait for enable_screen_capture
+      // Host mode: DO NOT connect WS yet!
+      // 1. Show MediaProjection dialog immediately
+      // 2. User clicks OK → host-ready returns host_token
+      // 3. THEN connect WS with host_token
+      
       if (widget.requestId == null) {
         print('[RemoteSession] HOST ERROR: requestId is required for host mode!');
         setState(() {
@@ -171,20 +173,17 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
         return;
       }
       
-      print('[RemoteSession] HOST: Connecting to signaling (pre-token mode)...');
-      print('[RemoteSession] HOST: Will wait for enable_screen_capture, then call host-ready for token');
+      print('[RemoteSession] HOST: NOT connecting WS yet (no token)');
+      print('[RemoteSession] HOST: Will show MediaProjection dialog, call host-ready, THEN connect WS');
       
-      // Connect signaling without token (server should allow for host waiting mode)
-      // If server requires token, we'll get an error and need to handle it
-      final connected = await _webrtcService!.connectSignaling(wsToken: widget.wsToken);
-      if (!connected) {
-        setState(() {
-          _error = 'Failed to connect signaling';
-          _isConnecting = false;
-        });
-        return;
-      }
-      print('[RemoteSession] HOST: Signaling connected, waiting for enable_screen_capture...');
+      // Stop showing "connecting" state - we're waiting for user action
+      setState(() {
+        _isConnecting = false;
+      });
+      
+      // Show MediaProjection dialog directly (don't wait for WS enable_screen_capture)
+      // Use widget.requestId since we have it from approve flow
+      _showEnableScreenCaptureDialog(widget.requestId!);
       
     } else {
       // Controller mode: must have token from request flow
@@ -294,10 +293,21 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
       print('[RemoteSession] >>> HOST: Got hostToken from host-ready (${result.hostToken!.length} chars)');
       print('[RemoteSession] >>> HOST: sessionId=${result.sessionId}, wsUrl=${result.signalingWsUrl ?? 'not provided'}');
       
-      // Reconnect signaling WS with the host_token from host-ready
-      // Note: If signalingWsUrl is provided, we could use that
-      // For now, just log success - the WS is already connected
-      print('[RemoteSession] >>> HOST: Host ready complete! Waiting for controller SDP...');
+      // NOW connect signaling WS with the host_token from host-ready
+      print('[RemoteSession] >>> HOST: Connecting signaling WS with host_token...');
+      final connected = await _webrtcService!.connectSignaling(wsToken: result.hostToken);
+      if (!connected) {
+        print('[RemoteSession] >>> HOST ERROR: Failed to connect signaling WS!');
+        setState(() {
+          _error = 'Failed to connect signaling with host_token';
+        });
+        return;
+      }
+      
+      print('[RemoteSession] >>> HOST: Signaling WS connected! Host ready complete.');
+      setState(() {
+        _isConnected = true;
+      });
       
     } catch (e) {
       print('[RemoteSession] >>> HOST ERROR: Enable screen capture failed: $e');

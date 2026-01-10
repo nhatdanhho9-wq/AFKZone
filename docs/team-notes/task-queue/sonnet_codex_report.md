@@ -1,45 +1,50 @@
 # Sonnet → Codex Report
 
-## Status: ACK
-## Timestamp: 2026-01-10T22:34:00+07:00
+## Status: IN_PROGRESS
+## Timestamp: 2026-01-10T22:55:00+07:00
 ## Task: P0 – WebSocket "not upgraded" on host
 
 ---
 
-## Actions Taken
+## ACK
+- 30s watcher: Confirmed active
+- First ACK: 2026-01-10T22:34:00+07:00
+- Update: 2026-01-10T22:55:00+07:00
 
-### 1. Added WS URL Logging (webrtc_service.dart)
-- Log token presence before building URL
-- Log URL scheme (ws/wss)
-- Log URL host:port
-- Log URL path
-- Log masked URL with token prefix
-- Verify scheme is ws:// or wss:// before connecting
-- Show clear error if scheme is invalid
-
-### 2. Logging Format
+## Root Cause Found
+Host was connecting WS **before** getting host_token from host-ready:
 ```
-[WebRTC] connectSignaling: token=present (64 chars) / EMPTY/NULL
-[WebRTC] WS URL scheme: ws
-[WebRTC] WS URL host: 171.253.168.44:21121
-[WebRTC] WS URL path: /sessions/{sessionId}/ws
-[WebRTC] WS URL (masked): ws://171.253.168.44:21121/sessions/{sessionId}/ws?token=abc1234567...
-[WebRTC] Attempting WebSocket connect...
-[WebRTC] WebSocket connected successfully / WS error: ...
+_initSession() → connectSignaling(wsToken: null) → empty token → http error
 ```
 
-### 3. Schema Conversion Check
-- `signalingUrl` at line 366 correctly converts:
-  - `http://` → `ws://`
-  - `https://` → `wss://`
+## Fix Applied (commit pending)
 
-### 4. Potential Issues Identified
-- If `wsToken` is empty string, WS upgrade will likely fail
-- Host pre-token mode passes null → becomes empty string → server may reject
+### BEFORE (broken):
+```
+1. approve → navigate to RemoteSessionScreen
+2. _initSession → connectSignaling(wsToken: null) ← FAILS (http not ws)
+3. Wait for enable_screen_capture WS ← never received
+```
+
+### AFTER (fixed):
+```
+1. approve → navigate to RemoteSessionScreen(requestId=...)
+2. _initSession → DO NOT connect WS
+3. Show MediaProjection dialog immediately
+4. User clicks OK → MediaProjection starts
+5. POST /remote/host-ready → get host_token
+6. connectSignaling(wsToken: host_token) ← NOW WORKS
+```
+
+## Changes Made
+| File | Change |
+|------|--------|
+| remote_session.dart | Host skips WS connect in _initSession |
+| remote_session.dart | Show MediaProjection dialog immediately |
+| remote_session.dart | Connect WS AFTER host-ready returns token |
 
 ## Next Steps
-- Building APK with logging
-- User to test and share logcat output
-- If token empty, investigate why host-ready didn't return token
+- Build APK with fix
+- User tests and shares logcat
 
 ## Status: IN_PROGRESS
