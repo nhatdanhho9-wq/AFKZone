@@ -78,9 +78,27 @@ class WebRTCService {
   /// wsToken can be null for host pre-token mode (new 2-step contract)
   Future<bool> connectSignaling({String? wsToken}) async {
     try {
+      // Log token presence BEFORE building URL
+      print('[WebRTC] connectSignaling: token=${wsToken != null && wsToken.isNotEmpty ? 'present (${wsToken.length} chars)' : 'EMPTY/NULL'}');
+      
       final wsUrl = RemoteService.signalingUrl(sessionId: sessionId, wsToken: wsToken ?? '');
-
-      _wsChannel = WebSocketChannel.connect(Uri.parse(wsUrl));
+      
+      // Parse and log URL details for debugging
+      final uri = Uri.parse(wsUrl);
+      print('[WebRTC] WS URL scheme: ${uri.scheme}');
+      print('[WebRTC] WS URL host: ${uri.host}:${uri.port}');
+      print('[WebRTC] WS URL path: ${uri.path}');
+      print('[WebRTC] WS URL (masked): ${uri.scheme}://${uri.host}:${uri.port}${uri.path}?token=${wsToken != null && wsToken.isNotEmpty ? '${wsToken.substring(0, 10)}...' : 'EMPTY'}');
+      
+      // Verify scheme is ws:// or wss://
+      if (uri.scheme != 'ws' && uri.scheme != 'wss') {
+        print('[WebRTC] ERROR: Invalid WS scheme "${uri.scheme}" - must be ws or wss!');
+        onError?.call('Invalid WebSocket scheme: ${uri.scheme}');
+        return false;
+      }
+      
+      print('[WebRTC] Attempting WebSocket connect...');
+      _wsChannel = WebSocketChannel.connect(uri);
       
       _wsChannel!.stream.listen(
         (message) => _handleSignalingMessage(message),
@@ -93,7 +111,7 @@ class WebRTCService {
         },
       );
 
-      print('[WebRTC] Connected to signaling: $wsUrl');
+      print('[WebRTC] WebSocket connected successfully');
       return true;
     } catch (e) {
       print('[WebRTC] Connect signaling error: $e');
