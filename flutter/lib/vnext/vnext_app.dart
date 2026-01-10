@@ -236,11 +236,23 @@ class _VNextAppState extends State<VNextApp> {
               final result = await RemoteService.approve(req.requestId);
               if (mounted) {
                 if (result.success) {
+                  // Check if hostToken is present
+                  print('[VNextApp] Approve result: success=${result.success}, hostToken=${result.hostToken != null ? 'present (${result.hostToken!.length} chars)' : 'NULL'}');
+                  
+                  if (result.hostToken == null || result.hostToken!.isEmpty) {
+                    // Host token missing - show error and don't navigate
+                    print('[VNextApp] ERROR: hostToken is NULL or empty! Cannot start host session.');
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Error: Missing host token from server'), backgroundColor: Colors.red),
+                    );
+                    return;
+                  }
+                  
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Request approved - starting host session...'), backgroundColor: Colors.green),
                   );
                   // Navigate to RemoteSessionScreen as HOST
-                  print('[VNextApp] Navigating to RemoteSessionScreen as HOST for session=${result.sessionId}, request=${req.requestId}');
+                  print('[VNextApp] Navigating to RemoteSessionScreen as HOST for session=${result.sessionId}, hostToken=${result.hostToken!.substring(0, 20)}...');
                   Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) => RemoteSessionScreen(

@@ -177,26 +177,41 @@ class RemoteService {
   static Future<ApproveResult> approve(String requestId) async {
     try {
       final headers = await AuthService.getAuthHeaders();
+      print('[RemoteService] approve: calling /remote/approve for request=$requestId');
       final response = await http.post(
         Uri.parse('${ApiConfig.baseUrl}/remote/approve'),
         headers: headers,
         body: json.encode({'request_id': requestId}),
       ).timeout(Duration(seconds: 15));
 
+      print('[RemoteService] approve: status=${response.statusCode}, body=${response.body}');
       final data = json.decode(response.body);
       
       if (response.statusCode == 200) {
-        print('[RemoteService] approve success: session=${data['session_id']}, controllerToken=${data['controller_token']}, hostToken=${data['host_token']}');
+        // Try multiple field names for host token
+        final hostToken = data['host_token'] ?? data['ws_token'] ?? data['token'];
+        final sessionId = data['session_id'] ?? data['sessionId'];
+        final controllerToken = data['controller_token'] ?? data['controllerToken'];
+        
+        print('[RemoteService] approve parsed: session=$sessionId, hostToken=${hostToken != null ? 'present (${hostToken.toString().length} chars)' : 'NULL'}, controllerToken=${controllerToken != null ? 'present' : 'NULL'}');
+        print('[RemoteService] approve raw keys: ${data.keys.toList()}');
+        
+        if (hostToken == null) {
+          print('[RemoteService] WARNING: host_token is NULL in approve response!');
+        }
+        
         return ApproveResult(
           success: true,
-          sessionId: data['session_id'],
-          controllerToken: data['controller_token'],
-          hostToken: data['host_token'],
+          sessionId: sessionId,
+          controllerToken: controllerToken,
+          hostToken: hostToken,
         );
       } else {
+        print('[RemoteService] approve failed: ${response.body}');
         return ApproveResult(success: false, error: _asString(data['detail']).isNotEmpty ? _asString(data['detail']) : 'Approve failed');
       }
     } catch (e) {
+      print('[RemoteService] approve exception: $e');
       return ApproveResult(success: false, error: e.toString());
     }
   }
