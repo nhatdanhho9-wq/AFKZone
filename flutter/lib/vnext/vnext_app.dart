@@ -236,29 +236,24 @@ class _VNextAppState extends State<VNextApp> {
               final result = await RemoteService.approve(req.requestId);
               if (mounted) {
                 if (result.success) {
-                  // Check if hostToken is present
-                  print('[VNextApp] Approve result: success=${result.success}, hostToken=${result.hostToken != null ? 'present (${result.hostToken!.length} chars)' : 'NULL'}');
-                  
-                  if (result.hostToken == null || result.hostToken!.isEmpty) {
-                    // Host token missing - show error and don't navigate
-                    print('[VNextApp] ERROR: hostToken is NULL or empty! Cannot start host session.');
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Error: Missing host token from server'), backgroundColor: Colors.red),
-                    );
-                    return;
-                  }
+                  // NEW CONTRACT: approve does NOT return host_token
+                  // Host will get host_token from POST /remote/host-ready AFTER enable_screen_capture
+                  print('[VNextApp] Approve success (new contract): session=${result.sessionId}, requestId=${req.requestId}');
+                  print('[VNextApp] NOTE: host_token will come from /remote/host-ready, NOT from approve');
                   
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Request approved - starting host session...'), backgroundColor: Colors.green),
+                    const SnackBar(content: Text('Request approved - waiting for screen capture...'), backgroundColor: Colors.green),
                   );
-                  // Navigate to RemoteSessionScreen as HOST
-                  print('[VNextApp] Navigating to RemoteSessionScreen as HOST for session=${result.sessionId}, hostToken=${result.hostToken!.substring(0, 20)}...');
+                  // Navigate to RemoteSessionScreen WITHOUT token
+                  // Host will connect WS, receive enable_screen_capture, call host-ready, THEN get token
+                  print('[VNextApp] Navigating to RemoteSessionScreen as HOST for session=${result.sessionId}, requestId=${req.requestId}');
                   Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) => RemoteSessionScreen(
                         sessionId: result.sessionId ?? req.requestId,
                         isHost: true,
-                        wsToken: result.hostToken,
+                        wsToken: null, // Token comes from host-ready, not approve
+                        requestId: req.requestId, // Pass requestId for host-ready call
                       ),
                     ),
                   );

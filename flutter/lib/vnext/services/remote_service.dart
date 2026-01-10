@@ -252,19 +252,45 @@ class RemoteService {
   }
 
   /// Host signals ready after MediaProjection enabled (2-step flow)
-  static Future<bool> hostReady(String requestId, {bool screenCapture = true}) async {
+  /// Returns HostReadyResult with host_token and signaling_ws_url
+  static Future<HostReadyResult> hostReady(String requestId, {bool screenCapture = true}) async {
     try {
       final headers = await AuthService.getAuthHeaders();
+      print('[RemoteService] hostReady: calling /remote/host-ready/$requestId?screen_capture=$screenCapture');
       final response = await http.post(
         Uri.parse('${ApiConfig.baseUrl}/remote/host-ready/$requestId?screen_capture=$screenCapture'),
         headers: headers,
       ).timeout(Duration(seconds: 15));
 
-      print('[RemoteService] hostReady $requestId: ${response.statusCode}');
-      return response.statusCode == 200;
+      print('[RemoteService] hostReady response: status=${response.statusCode}, body=${response.body}');
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        // Try multiple field names for host_token
+        final hostToken = data['host_token'] ?? data['ws_token'] ?? data['token'];
+        final sessionId = data['session_id'] ?? data['sessionId'];
+        final signalingWsUrl = data['signaling_ws_url'] ?? data['ws_url'];
+        
+        print('[RemoteService] hostReady parsed: sessionId=$sessionId, hostToken=${hostToken != null ? 'present (${hostToken.length} chars)' : 'NULL'}, wsUrl=${signalingWsUrl ?? 'NULL'}');
+        print('[RemoteService] hostReady raw keys: ${data.keys.toList()}');
+        
+        if (hostToken == null) {
+          print('[RemoteService] WARNING: host_token is NULL in hostReady response!');
+        }
+        
+        return HostReadyResult(
+          success: true,
+          sessionId: sessionId,
+          hostToken: hostToken,
+          signalingWsUrl: signalingWsUrl,
+        );
+      } else {
+        final data = json.decode(response.body);
+        return HostReadyResult(success: false, error: data['detail']?.toString() ?? 'Host ready failed');
+      }
     } catch (e) {
       print('[RemoteService] hostReady error: $e');
-      return false;
+      return HostReadyResult(success: false, error: e.toString());
     }
   }
 
@@ -405,6 +431,17 @@ class ApproveResult {
   final String? error;
 
   ApproveResult({required this.success, this.sessionId, this.controllerToken, this.hostToken, this.error});
+}
+
+/// Host ready result (from POST /remote/host-ready)
+class HostReadyResult {
+  final bool success;
+  final String? sessionId;
+  final String? hostToken;
+  final String? signalingWsUrl;
+  final String? error;
+
+  HostReadyResult({required this.success, this.sessionId, this.hostToken, this.signalingWsUrl, this.error});
 }
 
 /// TURN credentials

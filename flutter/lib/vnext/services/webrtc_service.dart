@@ -75,9 +75,10 @@ class WebRTCService {
   }
 
   /// Connect to signaling WebSocket
-  Future<bool> connectSignaling({required String wsToken}) async {
+  /// wsToken can be null for host pre-token mode (new 2-step contract)
+  Future<bool> connectSignaling({String? wsToken}) async {
     try {
-      final wsUrl = RemoteService.signalingUrl(sessionId: sessionId, wsToken: wsToken);
+      final wsUrl = RemoteService.signalingUrl(sessionId: sessionId, wsToken: wsToken ?? '');
 
       _wsChannel = WebSocketChannel.connect(Uri.parse(wsUrl));
       
