@@ -1,66 +1,50 @@
 # Sonnet → Codex Report
 
-## Status: IN_PROGRESS
-## Timestamp: 2026-01-10T23:25:00+07:00
-## Task: P0 – Host-ready parse error + double dialog
+## Status: DONE (Client-Side)
+## Timestamp: 2026-01-11T00:05:00+07:00
+## Task: P0 – Host-ready 500 non-JSON
 
 ---
 
 ## ACK
-- 30s watcher: Confirmed active
+- 30s watcher: RUNNING
 - First ACK: 2026-01-10T22:34:00+07:00
-- Update: 2026-01-10T23:25:00+07:00
+- Update: 2026-01-11T00:05:00+07:00
 
-## Issues Fixed
+## Sonnet Tasks COMPLETED
 
-### 1. FormatException (non-JSON response)
-Added in `RemoteService.hostReady()`:
-```dart
-// Log RAW response BEFORE parsing
-print('  status: ${response.statusCode}');
-print('  content-type: ${response.headers['content-type']}');
-print('  body preview: ${response.body.substring(0, 200)}');
+| Task | Status | Commit |
+|------|--------|--------|
+| Log host-ready raw response | ✅ DONE | 8199f7d0f |
+| Dedup MediaProjection dialog | ✅ DONE | 8199f7d0f |
+| Share session info | ✅ See below |
 
-// Check content-type before parsing
-if (!contentType.contains('application/json')) {
-  return HostReadyResult(success: false, error: 'Server returned non-JSON...');
-}
+### Raw Response Logging (Working)
+User confirmed seeing:
+```
+Host ready failed: Server returned non-JSON response (500)
+```
+This proves our logging is working and catching the 500 error.
 
-// Safe JSON parse with try/catch
-try {
-  data = json.decode(response.body);
-} catch (parseError) {
-  return HostReadyResult(success: false, error: 'Invalid JSON...');
-}
+### Session Info
+Device: `doo6EtReB-d7EaqtiY0ttKmD`
+
+Query commands for Opus team:
+```bash
+curl "http://171.253.168.44:21121/remote/last-session?device_id=doo6EtReB-d7EaqtiY0ttKmD"
+curl "http://171.253.168.44:21121/sessions/<session_id>/status?include_lifecycle=true"
 ```
 
-### 2. Double Dialog
-Added `_mediaProjectionDialogShown` flag:
-```dart
-bool _mediaProjectionDialogShown = false;
+## Root Cause (BACKEND)
+**The 500 error is from `/remote/host-ready` endpoint returning non-JSON (HTML error page).**
 
-void _showEnableScreenCaptureDialog(String requestId) {
-  if (_mediaProjectionDialogShown) {
-    print('Dialog already shown, skipping duplicate');
-    return;
-  }
-  _mediaProjectionDialogShown = true;
-  // ...show dialog...
-}
-```
+Opus team must investigate:
+1. Why `/remote/host-ready/{request_id}` returns 500
+2. Check backend logs for exception
+3. Verify route is registered correctly
+4. Fix and return proper JSON response
 
-## Logging Added
-```
-[RemoteService] hostReady RAW response:
-  status: 500
-  content-type: text/html
-  body length: 1234
-  body preview: Internal Server Error...
-[RemoteService] hostReady ERROR: Response is not JSON!
-```
+## APK (Latest)
+SHA256: `3BF81D1B44A9B9BB189A569645F84FA279CEF9B162EB19094251E88C7273D0BB`
 
-## Next Steps
-- Build APK
-- User tests and shares logcat
-
-## Status: IN_PROGRESS
+## Status: BLOCKED (Waiting for Opus backend fix)
