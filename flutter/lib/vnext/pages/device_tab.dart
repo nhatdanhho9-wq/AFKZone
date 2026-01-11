@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // For Clipboard
 import '../models/ui_config.dart';
 import '../actions/action_dispatcher.dart';
 import '../services/remote_service.dart';
@@ -581,8 +582,8 @@ class _DeviceTabState extends State<DeviceTab> {
         await _shareClient(d);
         break;
       case 'copy_id':
-        _remoteIdController.text = d.id;
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Device ID copied to input')));
+        await Clipboard.setData(ClipboardData(text: d.id));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Device ID copied to clipboard')));
         break;
       case 'delete':
         if (!isThis) {

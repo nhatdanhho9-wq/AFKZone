@@ -37,8 +37,10 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
   // 2-step host_ready flow state
   bool _waitingForHostReady = false;
   String? _pendingRequestIdForHost;
-  // Prevent duplicate MediaProjection dialog
+  // Per-request dedup: track handled request_id and sent flags
+  String? _handledRequestId; // Request ID that has been processed
   bool _mediaProjectionDialogShown = false;
+  bool _hostReadySent = false;
 
   @override
   void initState() {
@@ -215,11 +217,20 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
 
   /// Host: show MediaProjection dialog when server signals enable_screen_capture
   void _showEnableScreenCaptureDialog(String requestId) {
-    // Prevent duplicate dialogs
-    if (_mediaProjectionDialogShown) {
-      print('[RemoteSession] >>> HOST: Dialog already shown, skipping duplicate for request=$requestId');
+    // Per-request dedup: check if this request_id was already handled
+    if (_handledRequestId == requestId) {
+      print('[RemoteSession] >>> HOST: request_id=$requestId already handled, skipping duplicate');
       return;
     }
+    
+    // Prevent duplicate dialogs within same session
+    if (_mediaProjectionDialogShown) {
+      print('[RemoteSession] >>> HOST: Dialog already shown, skipping duplicate dialog for request=$requestId');
+      return;
+    }
+    
+    // Mark this request as being handled
+    _handledRequestId = requestId;
     _mediaProjectionDialogShown = true;
     
     print('[RemoteSession] >>> HOST: Showing MediaProjection dialog for request=$requestId');
@@ -264,6 +275,12 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
   /// Host: trigger MediaProjection and POST /remote/host-ready
   /// NEW CONTRACT: host-ready returns host_token, then reconnect WS with token
   Future<void> _enableScreenCaptureAndNotify(String requestId) async {
+    // Prevent duplicate host-ready calls
+    if (_hostReadySent) {
+      print('[RemoteSession] >>> HOST: host-ready already sent for this session, skipping duplicate');
+      return;
+    }
+    
     print('[RemoteSession] >>> HOST: Starting MediaProjection capture for request=$requestId');
     try {
       // Request MediaProjection
@@ -281,6 +298,7 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
       
       // Call host-ready to get host_token
       print('[RemoteSession] >>> HOST: Calling hostReady API for request=$requestId');
+      _hostReadySent = true; // Mark as sent to prevent duplicates
       final result = await RemoteService.hostReady(requestId, screenCapture: true);
       
       if (!result.success) {
