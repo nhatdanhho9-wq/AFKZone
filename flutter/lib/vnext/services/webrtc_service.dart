@@ -15,6 +15,9 @@ class WebRTCService {
   final String sessionId;
   final bool isHost;
   
+  // ICE candidate counter for debugging
+  int _iceCandidateCount = 0;
+  
   // Callbacks
   Function(MediaStream)? onRemoteStream;
   Function(RTCPeerConnectionState)? onConnectionState;
@@ -65,10 +68,10 @@ class WebRTCService {
         onConnectionState?.call(state);
       };
       
-      // ICE connection state handler with logging and server reporting
+      // ICE connection state handler - send via WS (NOT HTTP)
       _peerConnection!.onIceConnectionState = (RTCIceConnectionState state) {
         print('[WebRTC] ICE connection state: $state');
-        _reportIceStateToServer(state.toString());
+        _reportIceStateViaWS(state.toString());
       };
 
       print('[WebRTC] Initialized with TURN: ${turnCreds.urls}');
@@ -280,18 +283,22 @@ class WebRTCService {
 
   /// ICE candidate event
   void _onIceCandidate(RTCIceCandidate candidate) {
+    // Increment counter
+    _iceCandidateCount++;
+    
     // Log ICE candidate details
     final candidateStr = candidate.candidate ?? '';
     final isRelay = candidateStr.contains('relay');
     final isSrflx = candidateStr.contains('srflx');
-    final isHost = candidateStr.contains('host');
+    final isHostType = candidateStr.contains('host');
     String candidateType = 'unknown';
     if (isRelay) candidateType = 'relay (TURN)';
     else if (isSrflx) candidateType = 'srflx (STUN)';
-    else if (isHost) candidateType = 'host (local)';
+    else if (isHostType) candidateType = 'host (local)';
     
-    print('[WebRTC] ICE candidate: type=$candidateType, sdpMid=${candidate.sdpMid}');
-    print('[WebRTC] ICE candidate raw: ${candidateStr.length > 100 ? candidateStr.substring(0, 100) : candidateStr}...');
+    final role = isHost ? 'HOST' : 'CONTROLLER';
+    print('[WebRTC] [$role] ICE candidate #$_iceCandidateCount: type=$candidateType, sdpMid=${candidate.sdpMid}');
+    print('[WebRTC] [$role] Sending ICE candidate via WS (total sent: $_iceCandidateCount)');
     
     _sendSignaling({
       'type': 'ice_candidate',
@@ -312,14 +319,13 @@ class WebRTCService {
     }
   }
 
-  /// Report ICE state to server for diagnostics
-  Future<void> _reportIceStateToServer(String iceState) async {
-    try {
-      print('[WebRTC] Reporting ICE state to server: $iceState');
-      await RemoteService.reportIceState(sessionId, iceState);
-    } catch (e) {
-      print('[WebRTC] Failed to report ICE state: $e');
-    }
+  /// Report ICE state via WebSocket (NOT HTTP)
+  void _reportIceStateViaWS(String iceState) {
+    print('[WebRTC] Sending ICE state via WS: $iceState');
+    _sendSignaling({
+      'type': 'ice_state',
+      'payload': {'state': iceState},
+    });
   }
   
   /// Send signaling message
