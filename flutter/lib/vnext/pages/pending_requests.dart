@@ -33,29 +33,24 @@ class _PendingRequestsScreenState extends State<PendingRequestsScreen> {
 
   Future<void> _approve(PendingRequest request) async {
     final result = await RemoteService.approve(request.requestId);
-    if (result.success && result.sessionId != null) {
+    if (result.success) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Approved! Session: ${result.sessionId}')),
+        SnackBar(content: Text('Approved! Starting host session...')),
       );
-      // If the approving device is ALSO the target host device, it can attach and start sharing immediately.
-      // Otherwise (owner approves from another device), the target host device will poll /sessions/host/attach
-      // and show the screen-share prompt locally.
-      final hostDeviceId = DeviceService.deviceId;
-      if (hostDeviceId != null) {
-        final attach = await RemoteService.hostAttach(hostDeviceId: hostDeviceId);
-        if (attach.success && attach.hostToken != null) {
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(
-              builder: (_) => RemoteSessionScreen(
-                sessionId: result.sessionId!,
-                isHost: true,
-                wsToken: attach.hostToken!,
-              ),
-            ),
-          );
-          return;
-        }
-      }
+      // NEW FLOW: Navigate to RemoteSessionScreen with requestId
+      // Host will show MediaProjection dialog → call /remote/host-ready → get host_token → connect WS
+      print('[PendingRequests] Navigating to RemoteSessionScreen as HOST with requestId=${request.requestId}');
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => RemoteSessionScreen(
+            sessionId: result.sessionId ?? request.requestId,
+            isHost: true,
+            wsToken: null, // Token comes from host-ready, not approve
+            requestId: request.requestId, // For host-ready call
+          ),
+        ),
+      );
+      return;
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Approve failed: ${result.error}')),

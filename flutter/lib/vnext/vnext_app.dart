@@ -159,27 +159,10 @@ class _VNextAppState extends State<VNextApp> {
             }
           }
 
-          // 2) Host attach loop: try to attach if a session is pending for this device.
-          if (myDeviceId != null) {
-            final attach = await RemoteService.hostAttach(hostDeviceId: myDeviceId);
-            if (attach.success && attach.sessionId != null && attach.hostToken != null) {
-              if (!_pendingDialogOpen) {
-                _pendingDialogOpen = true;
-                if (mounted) {
-                  // Auto-open host session screen to trigger system screen-share prompt.
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => RemoteSessionScreen(
-                        sessionId: attach.sessionId!,
-                        isHost: true,
-                        wsToken: attach.hostToken!,
-                      ),
-                    ),
-                  ).then((_) => _pendingDialogOpen = false);
-                }
-              }
-            }
-          }
+          // REMOVED: Host attach loop (deprecated /sessions/host/attach endpoint)
+          // New flow: Owner approves from pending requests → host receives notification
+          // → host navigates to RemoteSessionScreen with requestId
+          // → host calls /remote/host-ready → gets host_token → connects WS
 
           await Future.delayed(const Duration(seconds: 3));
         } catch (_) {
