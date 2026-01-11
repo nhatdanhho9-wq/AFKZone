@@ -93,7 +93,6 @@ class WebRTCService {
       };
       
       // Log ICE configuration for debugging
-      final role = isHost ? 'HOST' : 'CONTROLLER';
       print('[WebRTC] [$role] ICE CONFIG:');
       print('[WebRTC] [$role]   iceTransportPolicy: ${config['iceTransportPolicy']}');
       print('[WebRTC] [$role]   iceServers count: ${iceServers.length}');
