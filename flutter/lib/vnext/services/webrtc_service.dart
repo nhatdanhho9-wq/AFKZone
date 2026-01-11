@@ -65,6 +65,8 @@ class WebRTCService {
         'iceServers': iceServers,
         // Changed from 'relay' to 'all' - 'relay' with unreachable TURN = 0 candidates!
         'iceTransportPolicy': 'all',
+        // Force software codec for emulator compatibility (LDPlayer HW decoder fails)
+        'sdpSemantics': 'unified-plan',
       };
       
       // Log ICE configuration for debugging
@@ -79,10 +81,17 @@ class WebRTCService {
         print('[WebRTC] [$role]   [$i] urls=$urls, hasAuth=$hasAuth');
       }
 
-      // Create peer connection
-      print('[WebRTC] [$role] Creating peer connection...');
-      _peerConnection = await createPeerConnection(config);
-      print('[WebRTC] [$role] Peer connection created');
+      // Create peer connection with software codec preference
+      // This uses mediaConstraints to force software decoding on Android
+      print('[WebRTC] [$role] Creating peer connection with SW codec preference...');
+      final mediaConstraints = {
+        'mandatory': {},
+        'optional': [
+          {'googForceSWCodec': true}, // Force software codec on Android
+        ],
+      };
+      _peerConnection = await createPeerConnection(config, mediaConstraints);
+      print('[WebRTC] [$role] Peer connection created with SW codec');
       
       // Set up event handlers
       _peerConnection!.onIceCandidate = _onIceCandidate;
