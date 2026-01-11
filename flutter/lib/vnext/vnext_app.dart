@@ -198,6 +198,37 @@ class _VNextAppState extends State<VNextApp> {
               'Created: ${req.createdAt}',
               style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
             ),
+            const SizedBox(height: 4),
+            Text(
+              'Target device: ${req.targetDeviceId ?? "unknown"}',
+              style: TextStyle(color: Colors.blue.shade600, fontSize: 12, fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'My device: ${DeviceService.deviceId ?? "unknown"}',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+            ),
+            if (req.targetDeviceId != null && DeviceService.deviceId != null && req.targetDeviceId != DeviceService.deviceId)
+              Container(
+                margin: const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.orange.shade800, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Note: Screen capture will start on the target device, not this device.',
+                        style: TextStyle(color: Colors.orange.shade800, fontSize: 11),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
           ],
         ),
         actions: [

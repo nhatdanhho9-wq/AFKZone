@@ -249,8 +249,18 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
         });
         return;
       }
-      print('[RemoteSession] CONTROLLER: Signaling connected, starting viewer...');
-      await _webrtcService!.startViewer();
+      
+      // CRITICAL: Do NOT call startViewer here!
+      // Controller must WAIT for host_ready message before starting SDP.
+      // The onHostReady callback will call startViewer when host is ready.
+      final timestamp = DateTime.now().toIso8601String();
+      print('[RemoteSession] [$timestamp] CONTROLLER: Signaling connected, entering wait_host_ready state');
+      print('[RemoteSession] [$timestamp] CONTROLLER: Waiting for host to enable screen capture...');
+      setState(() {
+        _waitingForHostReady = true;
+        _isConnecting = true; // Show "Waiting..." UI
+      });
+      // startViewer() will be called by onHostReady callback when host is ready
     }
   }
 
