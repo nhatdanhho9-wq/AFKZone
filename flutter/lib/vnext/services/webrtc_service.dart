@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'remote_service.dart';
 
 /// WebRTC Service for Remote Preview v0.1
@@ -41,6 +43,11 @@ class WebRTCService {
   /// Initialize WebRTC with TURN credentials
   Future<bool> initialize() async {
     try {
+      // Detect if running on emulator
+      final isEmulator = await _isEmulator();
+      final role = isHost ? 'HOST' : 'CONTROLLER';
+      print('[WebRTC] [$role] EMULATOR CHECK: isEmulator=$isEmulator');
+      
       // Get TURN credentials
       final turnCreds = await RemoteService.getTurnCredentials(sessionId);
       if (turnCreds == null) {
@@ -48,24 +55,40 @@ class WebRTCService {
         return false;
       }
 
-      // ICE servers configuration - IMPORTANT: 'all' allows STUN fallback if TURN fails
-      final iceServers = [
-        {
-          'urls': turnCreds.urls,
-          'username': turnCreds.username,
-          'credential': turnCreds.credential,
-        },
-        // Fallback STUN servers
-        {'urls': 'stun:stun.l.google.com:19302'},
-        {'urls': 'stun:stun1.l.google.com:19302'},
-        {'urls': 'stun:stun2.l.google.com:19302'},
-      ];
+      // ICE configuration based on device type
+      List<Map<String, dynamic>> iceServers;
+      String iceTransportPolicy;
+      
+      if (isEmulator) {
+        // EMULATOR: Use TURN relay ONLY (host/srflx path broken between VMs)
+        iceServers = [
+          {
+            'urls': turnCreds.urls,
+            'username': turnCreds.username,
+            'credential': turnCreds.credential,
+          },
+        ];
+        iceTransportPolicy = 'relay'; // Force TURN relay on emulators
+        print('[WebRTC] [$role] EMULATOR MODE: iceTransportPolicy=relay (TURN only)');
+      } else {
+        // REAL DEVICE: Allow all candidates (STUN fallback)
+        iceServers = [
+          {
+            'urls': turnCreds.urls,
+            'username': turnCreds.username,
+            'credential': turnCreds.credential,
+          },
+          {'urls': 'stun:stun.l.google.com:19302'},
+          {'urls': 'stun:stun1.l.google.com:19302'},
+          {'urls': 'stun:stun2.l.google.com:19302'},
+        ];
+        iceTransportPolicy = 'all';
+        print('[WebRTC] [$role] REAL DEVICE MODE: iceTransportPolicy=all');
+      }
       
       final config = {
         'iceServers': iceServers,
-        // Changed from 'relay' to 'all' - 'relay' with unreachable TURN = 0 candidates!
-        'iceTransportPolicy': 'all',
-        // Force software codec for emulator compatibility (LDPlayer HW decoder fails)
+        'iceTransportPolicy': iceTransportPolicy,
         'sdpSemantics': 'unified-plan',
       };
       
@@ -640,6 +663,43 @@ class WebRTCService {
     
     print('[WebRTC] SDP modified to prefer $codec (PT=$ptStr)');
     return lines.join('\r\n');
+  }
+
+  /// Detect if running on Android emulator
+  Future<bool> _isEmulator() async {
+    if (!Platform.isAndroid) return false;
+    
+    try {
+      final deviceInfo = DeviceInfoPlugin();
+      final androidInfo = await deviceInfo.androidInfo;
+      
+      // Check common emulator indicators
+      final fingerprint = androidInfo.fingerprint.toLowerCase();
+      final model = androidInfo.model.toLowerCase();
+      final brand = androidInfo.brand.toLowerCase();
+      final device = androidInfo.device.toLowerCase();
+      final product = androidInfo.product.toLowerCase();
+      final hardware = androidInfo.hardware.toLowerCase();
+      
+      final isEmulator = fingerprint.contains('generic') ||
+          fingerprint.contains('unknown') ||
+          model.contains('google_sdk') ||
+          model.contains('emulator') ||
+          model.contains('android sdk built for x86') ||
+          brand.startsWith('generic') ||
+          device.startsWith('generic') ||
+          product.contains('sdk') ||
+          product.contains('emulator') ||
+          hardware.contains('goldfish') ||
+          hardware.contains('ranchu') ||
+          androidInfo.isPhysicalDevice == false;
+      
+      print('[WebRTC] Device check: fingerprint=$fingerprint, model=$model, isPhysicalDevice=${androidInfo.isPhysicalDevice}');
+      return isEmulator;
+    } catch (e) {
+      print('[WebRTC] Emulator detection error: $e');
+      return false; // Assume real device on error
+    }
   }
 
   /// Disconnect and cleanup
