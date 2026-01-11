@@ -149,43 +149,64 @@ class WebRTCService {
 
   /// Start as viewer (receive remote stream)
   Future<void> startViewer() async {
-    if (_peerConnection == null) return;
+    print('[WebRTC] [CONTROLLER] startViewer() called');
+    
+    if (_peerConnection == null) {
+      print('[WebRTC] [CONTROLLER] ERROR: _peerConnection is NULL in startViewer!');
+      return;
+    }
 
     // Add transceiver for receiving video
+    print('[WebRTC] [CONTROLLER] Adding video transceiver...');
     await _peerConnection!.addTransceiver(
       kind: RTCRtpMediaType.RTCRtpMediaTypeVideo,
       init: RTCRtpTransceiverInit(direction: TransceiverDirection.RecvOnly),
     );
+    print('[WebRTC] [CONTROLLER] Adding audio transceiver...');
     await _peerConnection!.addTransceiver(
       kind: RTCRtpMediaType.RTCRtpMediaTypeAudio,
       init: RTCRtpTransceiverInit(direction: TransceiverDirection.RecvOnly),
     );
 
-    // Create offer
+    // Create offer - this triggers ICE gathering
+    print('[WebRTC] [CONTROLLER] Creating SDP offer...');
     final offer = await _peerConnection!.createOffer();
+    print('[WebRTC] [CONTROLLER] SDP offer created, length=${offer.sdp?.length ?? 0}');
+    
+    // setLocalDescription triggers ICE candidate generation
+    print('[WebRTC] [CONTROLLER] Setting local description (triggers ICE gathering)...');
     await _peerConnection!.setLocalDescription(offer);
+    print('[WebRTC] [CONTROLLER] Local description set - ICE gathering should start now');
     
     // Send offer via signaling
+    print('[WebRTC] [CONTROLLER] Sending SDP offer via WS...');
     _sendSignaling({
       'type': 'sdp_offer',
       'payload': {'sdp': offer.sdp},
     });
 
-    print('[WebRTC] Viewer started, offer sent');
+    print('[WebRTC] [CONTROLLER] startViewer() complete - waiting for ICE candidates + answer');
   }
 
   /// Start as host (send screen capture)
   Future<void> startHost(MediaStream screenStream) async {
-    if (_peerConnection == null) return;
+    print('[WebRTC] [HOST] startHost() called');
+    
+    if (_peerConnection == null) {
+      print('[WebRTC] [HOST] ERROR: _peerConnection is NULL in startHost!');
+      return;
+    }
 
     _localStream = screenStream;
     
     // Add screen capture tracks
+    print('[WebRTC] [HOST] Adding ${screenStream.getTracks().length} tracks to peer connection...');
     for (final track in screenStream.getTracks()) {
       await _peerConnection!.addTrack(track, screenStream);
+      print('[WebRTC] [HOST] Added track: ${track.kind}');
     }
 
-    print('[WebRTC] Host started, waiting for offer');
+    print('[WebRTC] [HOST] startHost() complete - waiting for SDP offer from controller');
   }
 
   /// Handle incoming signaling message
@@ -251,25 +272,39 @@ class WebRTCService {
 
   /// Handle SDP offer (host receives from viewer)
   Future<void> _handleOffer(String sdp) async {
-    if (_peerConnection == null) return;
+    print('[WebRTC] [HOST] _handleOffer() called, sdp length=${sdp.length}');
+    
+    if (_peerConnection == null) {
+      print('[WebRTC] [HOST] ERROR: _peerConnection is NULL in _handleOffer!');
+      return;
+    }
     if (sdp.isEmpty) {
+      print('[WebRTC] [HOST] ERROR: Received empty SDP offer!');
       onError?.call('Received empty SDP offer');
       return;
     }
 
+    print('[WebRTC] [HOST] Setting remote description (offer)...');
     await _peerConnection!.setRemoteDescription(
       RTCSessionDescription(sdp, 'offer'),
     );
+    print('[WebRTC] [HOST] Remote description set');
 
+    print('[WebRTC] [HOST] Creating SDP answer...');
     final answer = await _peerConnection!.createAnswer();
+    print('[WebRTC] [HOST] SDP answer created, length=${answer.sdp?.length ?? 0}');
+    
+    print('[WebRTC] [HOST] Setting local description (triggers ICE gathering)...');
     await _peerConnection!.setLocalDescription(answer);
+    print('[WebRTC] [HOST] Local description set - ICE gathering should start now');
 
+    print('[WebRTC] [HOST] Sending SDP answer via WS...');
     _sendSignaling({
       'type': 'sdp_answer',
       'payload': {'sdp': answer.sdp},
     });
 
-    print('[WebRTC] Answer sent');
+    print('[WebRTC] [HOST] _handleOffer() complete - waiting for ICE candidates');
   }
 
   /// Handle SDP answer (viewer receives from host)
