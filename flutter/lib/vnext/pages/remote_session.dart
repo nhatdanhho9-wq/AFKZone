@@ -41,6 +41,8 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
   String? _handledRequestId; // Request ID that has been processed
   bool _mediaProjectionDialogShown = false;
   bool _hostReadySent = false;
+  // UI state
+  bool _showControls = true; // Toggle overlay visibility
 
   @override
   void initState() {
@@ -135,6 +137,11 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
           _error = 'Session expired. Please close and re-approve the connection.';
           _isConnecting = false;
         });
+      } else if (_waitingForHostReady) {
+        // Controller is waiting for host to approve/enable screen capture
+        // Suppress connection errors like "Peer Not Connected" during this phase
+        print('[RemoteSession] Suppressing error during wait_host_ready: $error');
+        // Keep showing "Waiting for host..." instead of error
       } else {
         setState(() {
           _error = error;
@@ -508,20 +515,26 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
               ),
             ),
 
-          // Disconnect button
-          Positioned(
-            bottom: 32,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: FloatingActionButton.extended(
+          // Disconnect button (small, toggleable)
+          if (_showControls)
+            Positioned(
+              bottom: 24,
+              right: 16,
+              child: FloatingActionButton.small(
                 onPressed: _disconnect,
-                backgroundColor: Colors.red,
-                icon: const Icon(Icons.call_end),
-                label: const Text('Disconnect'),
+                backgroundColor: Colors.red.withOpacity(0.8),
+                child: const Icon(Icons.call_end, size: 20),
               ),
             ),
-          ),
+          
+          // Tap to toggle controls
+          if (_isConnected)
+            Positioned.fill(
+              child: GestureDetector(
+                onTap: () => setState(() => _showControls = !_showControls),
+                behavior: HitTestBehavior.translucent,
+              ),
+            ),
         ],
       ),
     );

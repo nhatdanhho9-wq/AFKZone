@@ -269,7 +269,35 @@ class WebRTCService {
       print('[WebRTC] [HOST] Added track: ${track.kind}');
     }
 
+    // QoS: Limit bitrate for smoother streaming (especially on emulators)
+    // 600-900 kbps is good for emulator-to-emulator
+    await _applyBitrateLimits(maxBitrate: 800000); // 800 kbps
+
     print('[WebRTC] [HOST] startHost() complete - waiting for SDP offer from controller');
+  }
+  
+  /// Apply bitrate limits to video senders
+  Future<void> _applyBitrateLimits({required int maxBitrate}) async {
+    if (_peerConnection == null) return;
+    
+    try {
+      final senders = await _peerConnection!.getSenders();
+      for (final sender in senders) {
+        if (sender.track?.kind == 'video') {
+          final params = sender.parameters;
+          if (params.encodings != null && params.encodings!.isNotEmpty) {
+            for (final encoding in params.encodings!) {
+              encoding.maxBitrate = maxBitrate;
+              encoding.maxFramerate = 15; // Cap at 15 FPS for emulators
+            }
+            await sender.setParameters(params);
+            print('[WebRTC] [HOST] Applied bitrate limit: ${maxBitrate / 1000} kbps, 15 fps');
+          }
+        }
+      }
+    } catch (e) {
+      print('[WebRTC] [HOST] Failed to apply bitrate limits: $e');
+    }
   }
 
   /// Handle incoming signaling message

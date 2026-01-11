@@ -219,27 +219,40 @@ class _VNextAppState extends State<VNextApp> {
               final result = await RemoteService.approve(req.requestId);
               if (mounted) {
                 if (result.success) {
-                  // NEW CONTRACT: approve does NOT return host_token
-                  // Host will get host_token from POST /remote/host-ready AFTER enable_screen_capture
-                  print('[VNextApp] Approve success (new contract): session=${result.sessionId}, requestId=${req.requestId}');
-                  print('[VNextApp] NOTE: host_token will come from /remote/host-ready, NOT from approve');
+                  // Check if THIS device is the target device for screen capture
+                  final myDeviceId = DeviceService.deviceId;
+                  final isTargetDevice = myDeviceId != null && myDeviceId == req.targetDeviceId;
                   
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Request approved - waiting for screen capture...'), backgroundColor: Colors.green),
-                  );
-                  // Navigate to RemoteSessionScreen WITHOUT token
-                  // Host will connect WS, receive enable_screen_capture, call host-ready, THEN get token
-                  print('[VNextApp] Navigating to RemoteSessionScreen as HOST for session=${result.sessionId}, requestId=${req.requestId}');
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => RemoteSessionScreen(
-                        sessionId: result.sessionId ?? req.requestId,
-                        isHost: true,
-                        wsToken: null, // Token comes from host-ready, not approve
-                        requestId: req.requestId, // Pass requestId for host-ready call
+                  print('[VNextApp] Approve success: session=${result.sessionId}, requestId=${req.requestId}');
+                  print('[VNextApp] Device check: myDeviceId=$myDeviceId, targetDeviceId=${req.targetDeviceId}, isTargetDevice=$isTargetDevice');
+                  
+                  if (isTargetDevice) {
+                    // THIS device is the target - open host session
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Request approved - waiting for screen capture...'), backgroundColor: Colors.green),
+                    );
+                    print('[VNextApp] Navigating to RemoteSessionScreen as HOST for session=${result.sessionId}, requestId=${req.requestId}');
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => RemoteSessionScreen(
+                          sessionId: result.sessionId ?? req.requestId,
+                          isHost: true,
+                          wsToken: null,
+                          requestId: req.requestId,
+                        ),
                       ),
-                    ),
-                  );
+                    );
+                  } else {
+                    // NOT the target device - just show confirmation, target device will receive enable_screen_capture
+                    print('[VNextApp] Approved from non-target device. Target device (${req.targetDeviceId}) will receive enable_screen_capture via WS.');
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Request approved. Screen capture will start on the target device.'),
+                        backgroundColor: Colors.green,
+                        duration: Duration(seconds: 4),
+                      ),
+                    );
+                  }
                 } else if (result.error?.contains('password') == true) {
                   // Server requires password → show password dialog
                   _showPasswordDialog(req);
