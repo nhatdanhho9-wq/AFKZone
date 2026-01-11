@@ -128,6 +128,13 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
           _error = 'Host needs to enable screen capture';
           _isConnecting = false;
         });
+      } else if (error.startsWith('SESSION_EXPIRED:')) {
+        // Session expired after server restart - user needs to re-approve
+        print('[RemoteSession] Session expired detected: $error');
+        setState(() {
+          _error = 'Session expired. Please close and re-approve the connection.';
+          _isConnecting = false;
+        });
       } else {
         setState(() {
           _error = error;

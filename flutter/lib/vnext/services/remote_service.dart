@@ -338,6 +338,7 @@ class RemoteService {
   }
 
   /// Get TURN credentials for a session
+  /// Throws SessionExpiredException if session is expired (404)
   static Future<TurnCredentials?> getTurnCredentials(String sessionId) async {
     try {
       final headers = await AuthService.getAuthHeaders();
@@ -349,9 +350,16 @@ class RemoteService {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         return TurnCredentials.fromJson(data);
+      } else if (response.statusCode == 404) {
+        // Session expired or not found - need to re-approve
+        print('[RemoteService] getTurnCredentials 404: session expired or not found');
+        throw SessionExpiredException('Session expired. Please re-approve the connection.');
+      } else {
+        print('[RemoteService] getTurnCredentials failed: ${response.statusCode}');
+        return null;
       }
-      return null;
     } catch (e) {
+      if (e is SessionExpiredException) rethrow;
       print('[RemoteService] getTurnCredentials error: $e');
       return null;
     }
@@ -528,4 +536,13 @@ class HostAttachResult {
   final String? hostToken;
   final String? error;
   HostAttachResult({required this.success, this.sessionId, this.hostToken, this.error});
+}
+
+/// Exception thrown when a session has expired (e.g., server restart, 404 on turn-credentials)
+class SessionExpiredException implements Exception {
+  final String message;
+  SessionExpiredException(this.message);
+  
+  @override
+  String toString() => 'SessionExpiredException: $message';
 }

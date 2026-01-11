@@ -49,7 +49,15 @@ class WebRTCService {
       print('[WebRTC] [$role] EMULATOR CHECK: isEmulator=$isEmulator');
       
       // Get TURN credentials
-      final turnCreds = await RemoteService.getTurnCredentials(sessionId);
+      TurnCredentials? turnCreds;
+      try {
+        turnCreds = await RemoteService.getTurnCredentials(sessionId);
+      } on SessionExpiredException catch (e) {
+        print('[WebRTC] [$role] Session expired: $e');
+        onError?.call('SESSION_EXPIRED: ${e.message}');
+        return false;
+      }
+      
       if (turnCreds == null) {
         onError?.call('Failed to get TURN credentials');
         return false;
