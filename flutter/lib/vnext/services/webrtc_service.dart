@@ -319,9 +319,9 @@ class WebRTCService {
     print('[WebRTC] [HOST] SDP answer created, length=${answer.sdp?.length ?? 0}');
     
     // Force VP8 codec in answer as well
-    String sdp = answer.sdp ?? '';
-    sdp = _preferCodec(sdp, 'VP8');
-    final newAnswer = RTCSessionDescription(sdp, answer.type);
+    String answerSdp = answer.sdp ?? '';
+    answerSdp = _preferCodec(answerSdp, 'VP8');
+    final newAnswer = RTCSessionDescription(answerSdp, answer.type);
     
     print('[WebRTC] [HOST] Setting local description (triggers ICE gathering)...');
     await _peerConnection!.setLocalDescription(newAnswer);
