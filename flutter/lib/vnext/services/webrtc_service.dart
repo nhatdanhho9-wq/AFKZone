@@ -78,6 +78,15 @@ class WebRTCService {
         print('[WebRTC] ICE connection state: $state');
         _reportIceStateViaWS(state.toString());
       };
+      
+      // ICE gathering state handler - critical for debugging
+      _peerConnection!.onIceGatheringState = (RTCIceGatheringState state) {
+        final role = isHost ? 'HOST' : 'CONTROLLER';
+        print('[WebRTC] [$role] ICE GATHERING STATE: $state');
+        if (state == RTCIceGatheringState.RTCIceGatheringStateComplete) {
+          print('[WebRTC] [$role] ICE gathering COMPLETE. Generated=$_iceCandidateGeneratedCount, Sent=$_iceCandidateSentCount, Pending=${_pendingIceCandidates.length}');
+        }
+      };
 
       print('[WebRTC] Initialized with TURN: ${turnCreds.urls}');
       return true;
@@ -379,11 +388,22 @@ class WebRTCService {
   
   /// Send signaling message
   void _sendSignaling(Map<String, dynamic> data) {
+    final role = isHost ? 'HOST' : 'CONTROLLER';
+    final msgType = data['type'] ?? 'unknown';
+    
     if (_wsChannel == null) {
-      print('[WebRTC] WARNING: _sendSignaling called but _wsChannel is NULL! Message type: ${data['type']}');
+      print('[WebRTC] [$role] ERROR: _wsChannel is NULL when trying to send type=$msgType');
       return;
     }
-    _wsChannel!.sink.add(json.encode(data));
+    
+    try {
+      final jsonStr = json.encode(data);
+      print('[WebRTC] [$role] >>> SENDING via WS: type=$msgType, size=${jsonStr.length} bytes');
+      _wsChannel!.sink.add(jsonStr);
+      print('[WebRTC] [$role] >>> SENT OK: type=$msgType');
+    } catch (e) {
+      print('[WebRTC] [$role] ERROR sending via WS: $e');
+    }
   }
 
   /// Get remote stream for rendering
