@@ -192,16 +192,21 @@ class WebRTCService {
     final offer = await _peerConnection!.createOffer();
     print('[WebRTC] [CONTROLLER] SDP offer created, length=${offer.sdp?.length ?? 0}');
     
+    // Force VP8 codec for LDPlayer/Emulator compatibility
+    String sdp = offer.sdp ?? '';
+    sdp = _preferCodec(sdp, 'VP8');
+    final newOffer = RTCSessionDescription(sdp, offer.type);
+    
     // setLocalDescription triggers ICE candidate generation
     print('[WebRTC] [CONTROLLER] Setting local description (triggers ICE gathering)...');
-    await _peerConnection!.setLocalDescription(offer);
+    await _peerConnection!.setLocalDescription(newOffer);
     print('[WebRTC] [CONTROLLER] Local description set - ICE gathering should start now');
     
     // Send offer via signaling
     print('[WebRTC] [CONTROLLER] Sending SDP offer via WS...');
     _sendSignaling({
       'type': 'sdp_offer',
-      'payload': {'sdp': offer.sdp},
+      'payload': {'sdp': newOffer.sdp},
     });
 
     print('[WebRTC] [CONTROLLER] startViewer() complete - waiting for ICE candidates + answer');
@@ -313,14 +318,19 @@ class WebRTCService {
     final answer = await _peerConnection!.createAnswer();
     print('[WebRTC] [HOST] SDP answer created, length=${answer.sdp?.length ?? 0}');
     
+    // Force VP8 codec in answer as well
+    String sdp = answer.sdp ?? '';
+    sdp = _preferCodec(sdp, 'VP8');
+    final newAnswer = RTCSessionDescription(sdp, answer.type);
+    
     print('[WebRTC] [HOST] Setting local description (triggers ICE gathering)...');
-    await _peerConnection!.setLocalDescription(answer);
+    await _peerConnection!.setLocalDescription(newAnswer);
     print('[WebRTC] [HOST] Local description set - ICE gathering should start now');
 
     print('[WebRTC] [HOST] Sending SDP answer via WS...');
     _sendSignaling({
       'type': 'sdp_answer',
-      'payload': {'sdp': answer.sdp},
+      'payload': {'sdp': newAnswer.sdp},
     });
 
     print('[WebRTC] [HOST] _handleOffer() complete - waiting for ICE candidates');
@@ -529,6 +539,59 @@ class WebRTCService {
 
   /// Get remote stream for rendering
   MediaStream? get remoteStream => _remoteStream;
+
+  /// Helper to force a specific codec (e.g. 'VP8') to be the preferred one in SDP
+  String _preferCodec(String sdp, String codec) {
+    print('[WebRTC] _preferCodec called for $codec');
+    final lines = sdp.split('\r\n');
+    final mLineIndex = lines.indexWhere((line) => line.startsWith('m=video'));
+    if (mLineIndex == -1) {
+      print('[WebRTC] WARNING: No m=video line found in SDP');
+      return sdp;
+    }
+
+    // Parse the m-line to get payload types
+    // m=video <port> <proto> <fmt1> <fmt2> ...
+    final mLine = lines[mLineIndex];
+    final parts = mLine.split(' ');
+    if (parts.length < 4) return sdp;
+
+    final fmtList = parts.sublist(3); // available payload types
+    int? codecPayloadType;
+
+    // Find the payload type for the desired codec
+    for (final line in lines) {
+      if (line.startsWith('a=rtpmap:')) {
+        // a=rtpmap:<payloadType> <encodingName>/<clockRate>...
+        final rtpmapParts = line.substring(9).split(' ');
+        if (rtpmapParts.length >= 2) {
+          final pt = int.tryParse(rtpmapParts[0]);
+          final encoding = rtpmapParts[1].split('/')[0];
+          if (encoding.toUpperCase() == codec.toUpperCase()) {
+            codecPayloadType = pt;
+            break;
+          }
+        }
+      }
+    }
+
+    if (codecPayloadType == null) {
+      print('[WebRTC] WARNING: Codec $codec not found in SDP');
+      return sdp;
+    }
+
+    // Move preferred codec to the front of the fmt list
+    final ptStr = codecPayloadType.toString();
+    fmtList.remove(ptStr);
+    fmtList.insert(0, ptStr);
+
+    // Reconstruct m-line
+    parts.replaceRange(3, parts.length, fmtList);
+    lines[mLineIndex] = parts.join(' ');
+    
+    print('[WebRTC] SDP modified to prefer $codec (PT=$ptStr)');
+    return lines.join('\r\n');
+  }
 
   /// Disconnect and cleanup
   Future<void> disconnect() async {
