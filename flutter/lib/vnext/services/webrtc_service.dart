@@ -48,22 +48,41 @@ class WebRTCService {
         return false;
       }
 
-      // ICE servers configuration
+      // ICE servers configuration - IMPORTANT: 'all' allows STUN fallback if TURN fails
+      final iceServers = [
+        {
+          'urls': turnCreds.urls,
+          'username': turnCreds.username,
+          'credential': turnCreds.credential,
+        },
+        // Fallback STUN servers
+        {'urls': 'stun:stun.l.google.com:19302'},
+        {'urls': 'stun:stun1.l.google.com:19302'},
+        {'urls': 'stun:stun2.l.google.com:19302'},
+      ];
+      
       final config = {
-        'iceServers': [
-          {
-            'urls': turnCreds.urls,
-            'username': turnCreds.username,
-            'credential': turnCreds.credential,
-          },
-          // Fallback STUN
-          {'urls': 'stun:stun.l.google.com:19302'},
-        ],
-        'iceTransportPolicy': 'relay', // Force TURN relay
+        'iceServers': iceServers,
+        // Changed from 'relay' to 'all' - 'relay' with unreachable TURN = 0 candidates!
+        'iceTransportPolicy': 'all',
       };
+      
+      // Log ICE configuration for debugging
+      final role = isHost ? 'HOST' : 'CONTROLLER';
+      print('[WebRTC] [$role] ICE CONFIG:');
+      print('[WebRTC] [$role]   iceTransportPolicy: ${config['iceTransportPolicy']}');
+      print('[WebRTC] [$role]   iceServers count: ${iceServers.length}');
+      for (int i = 0; i < iceServers.length; i++) {
+        final server = iceServers[i];
+        final urls = server['urls'];
+        final hasAuth = server.containsKey('username');
+        print('[WebRTC] [$role]   [$i] urls=$urls, hasAuth=$hasAuth');
+      }
 
       // Create peer connection
+      print('[WebRTC] [$role] Creating peer connection...');
       _peerConnection = await createPeerConnection(config);
+      print('[WebRTC] [$role] Peer connection created');
       
       // Set up event handlers
       _peerConnection!.onIceCandidate = _onIceCandidate;
