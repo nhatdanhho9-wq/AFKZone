@@ -102,10 +102,16 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
         });
       } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
                  state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
-        setState(() {
-          _isConnected = false;
-          _error = 'Connection failed';
-        });
+        // Only show error if NOT waiting for host - suppress during wait phase
+        if (_waitingForHostReady) {
+          print('[RemoteSession] Connection state $state suppressed - still waiting for host');
+          // Keep showing "Waiting for host..." instead of connection error
+        } else {
+          setState(() {
+            _isConnected = false;
+            _error = 'Connection failed';
+          });
+        }
       } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
         // Closed by remote peer or intentionally
         print('[RemoteSession] Connection closed');
@@ -162,6 +168,8 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
 
     _webrtcService!.onWaitHostReady = () {
       // Controller: show waiting UI, do NOT SDP yet
+      final timestamp = DateTime.now().toIso8601String();
+      print('[RemoteSession] [$timestamp] CONTROLLER: wait_host_ready received - entering wait state');
       setState(() {
         _waitingForHostReady = true;
         _isConnecting = true;
@@ -170,12 +178,16 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
 
     _webrtcService!.onHostReady = (sessionId, controllerToken) async {
       // Controller: auto-continue SDP
-      print('[RemoteSession] Host ready! session=$sessionId, starting SDP...');
+      final timestamp = DateTime.now().toIso8601String();
+      print('[RemoteSession] [$timestamp] CONTROLLER: host_ready received! session=$sessionId');
+      print('[RemoteSession] [$timestamp] CONTROLLER: Exiting wait state, starting SDP...');
       setState(() {
         _waitingForHostReady = false;
       });
       // Create SDP offer and start connection
+      print('[RemoteSession] [$timestamp] CONTROLLER: Calling startViewer()');
       await _webrtcService!.startViewer();
+      print('[RemoteSession] [$timestamp] CONTROLLER: startViewer() complete');
     };
 
     // Initialize WebRTC
