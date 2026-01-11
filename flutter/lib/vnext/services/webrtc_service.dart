@@ -15,8 +15,9 @@ class WebRTCService {
   final String sessionId;
   final bool isHost;
   
-  // ICE candidate counter for debugging
-  int _iceCandidateCount = 0;
+  // ICE candidate counters for debugging
+  int _iceCandidateSentCount = 0;
+  int _iceCandidateReceivedCount = 0;
   
   // Callbacks
   Function(MediaStream)? onRemoteStream;
@@ -272,6 +273,12 @@ class WebRTCService {
   /// Handle ICE candidate
   Future<void> _handleIceCandidate(Map<String, dynamic> data) async {
     if (_peerConnection == null) return;
+    
+    // Increment received counter
+    _iceCandidateReceivedCount++;
+    final role = isHost ? 'HOST' : 'CONTROLLER';
+    print('[WebRTC] [$role] ICE candidate RECEIVED #$_iceCandidateReceivedCount');
+    print('[WebRTC] [$role] ICE counts: sent=$_iceCandidateSentCount, received=$_iceCandidateReceivedCount');
 
     final candidate = RTCIceCandidate(
       data['candidate']?.toString(),
@@ -283,8 +290,8 @@ class WebRTCService {
 
   /// ICE candidate event
   void _onIceCandidate(RTCIceCandidate candidate) {
-    // Increment counter
-    _iceCandidateCount++;
+    // Increment sent counter
+    _iceCandidateSentCount++;
     
     // Log ICE candidate details
     final candidateStr = candidate.candidate ?? '';
@@ -297,8 +304,8 @@ class WebRTCService {
     else if (isHostType) candidateType = 'host (local)';
     
     final role = isHost ? 'HOST' : 'CONTROLLER';
-    print('[WebRTC] [$role] ICE candidate #$_iceCandidateCount: type=$candidateType, sdpMid=${candidate.sdpMid}');
-    print('[WebRTC] [$role] Sending ICE candidate via WS (total sent: $_iceCandidateCount)');
+    print('[WebRTC] [$role] ICE candidate SENT #$_iceCandidateSentCount: type=$candidateType');
+    print('[WebRTC] [$role] ICE counts: sent=$_iceCandidateSentCount, received=$_iceCandidateReceivedCount');
     
     _sendSignaling({
       'type': 'ice_candidate',
@@ -330,7 +337,11 @@ class WebRTCService {
   
   /// Send signaling message
   void _sendSignaling(Map<String, dynamic> data) {
-    _wsChannel?.sink.add(json.encode(data));
+    if (_wsChannel == null) {
+      print('[WebRTC] WARNING: _sendSignaling called but _wsChannel is NULL! Message type: ${data['type']}');
+      return;
+    }
+    _wsChannel!.sink.add(json.encode(data));
   }
 
   /// Get remote stream for rendering

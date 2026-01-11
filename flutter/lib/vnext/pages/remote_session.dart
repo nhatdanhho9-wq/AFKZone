@@ -283,7 +283,7 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
     
     print('[RemoteSession] >>> HOST: Starting MediaProjection capture for request=$requestId');
     try {
-      // Request MediaProjection
+      // Request MediaProjection FIRST (get user permission)
       final stream = await navigator.mediaDevices.getDisplayMedia({
         'audio': false,
         'video': {
@@ -292,11 +292,7 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
       });
       print('[RemoteSession] >>> HOST: MediaProjection stream obtained, tracks=${stream.getTracks().length}');
       
-      // Start hosting with the captured stream
-      await _webrtcService!.startHost(stream);
-      print('[RemoteSession] >>> HOST: WebRTC startHost completed');
-      
-      // Call host-ready to get host_token
+      // 1. Call host-ready FIRST to get host_token
       print('[RemoteSession] >>> HOST: Calling hostReady API for request=$requestId');
       _hostReadySent = true; // Mark as sent to prevent duplicates
       final result = await RemoteService.hostReady(requestId, screenCapture: true);
@@ -320,8 +316,8 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
       print('[RemoteSession] >>> HOST: Got hostToken from host-ready (${result.hostToken!.length} chars)');
       print('[RemoteSession] >>> HOST: sessionId=${result.sessionId}, wsUrl=${result.signalingWsUrl ?? 'not provided'}');
       
-      // NOW connect signaling WS with the host_token from host-ready
-      print('[RemoteSession] >>> HOST: Connecting signaling WS with host_token...');
+      // 2. Connect signaling WS BEFORE adding tracks (so ICE candidates are captured)
+      print('[RemoteSession] >>> HOST: Connecting signaling WS with host_token BEFORE startHost...');
       final connected = await _webrtcService!.connectSignaling(wsToken: result.hostToken);
       if (!connected) {
         print('[RemoteSession] >>> HOST ERROR: Failed to connect signaling WS!');
@@ -330,8 +326,13 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
         });
         return;
       }
+      print('[RemoteSession] >>> HOST: Signaling WS connected!');
       
-      print('[RemoteSession] >>> HOST: Signaling WS connected! Host ready complete.');
+      // 3. NOW start hosting - ICE candidates will be sent via WS
+      print('[RemoteSession] >>> HOST: Starting WebRTC host with stream (WS already connected)...');
+      await _webrtcService!.startHost(stream);
+      print('[RemoteSession] >>> HOST: WebRTC startHost completed - ICE candidates should be flowing');
+      
       setState(() {
         _isConnected = true;
       });
