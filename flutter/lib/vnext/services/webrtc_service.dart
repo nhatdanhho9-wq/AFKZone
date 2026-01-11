@@ -422,12 +422,79 @@ class WebRTCService {
     print('[WebRTC] [$role] All pending ICE candidates flushed. Total sent: $_iceCandidateSentCount');
   }
 
-  /// Track event (receive remote stream)
+  /// Track event (receive remote stream) - CONTROLLER receives video here
   void _onTrack(RTCTrackEvent event) {
+    final role = isHost ? 'HOST' : 'CONTROLLER';
+    print('[WebRTC] [$role] *** onTrack EVENT FIRED ***');
+    print('[WebRTC] [$role] onTrack: track.kind=${event.track.kind}, track.id=${event.track.id}');
+    print('[WebRTC] [$role] onTrack: track.enabled=${event.track.enabled}, track.muted=${event.track.muted}');
+    print('[WebRTC] [$role] onTrack: streams count=${event.streams.length}');
+    
     if (event.streams.isNotEmpty) {
       _remoteStream = event.streams[0];
+      final videoTracks = _remoteStream!.getVideoTracks();
+      final audioTracks = _remoteStream!.getAudioTracks();
+      print('[WebRTC] [$role] Remote stream received:');
+      print('[WebRTC] [$role]   stream.id=${_remoteStream!.id}');
+      print('[WebRTC] [$role]   videoTracks=${videoTracks.length}, audioTracks=${audioTracks.length}');
+      
+      for (int i = 0; i < videoTracks.length; i++) {
+        final vt = videoTracks[i];
+        print('[WebRTC] [$role]   videoTrack[$i]: id=${vt.id}, enabled=${vt.enabled}, muted=${vt.muted}');
+      }
+      
+      print('[WebRTC] [$role] Calling onRemoteStream callback...');
       onRemoteStream?.call(_remoteStream!);
-      print('[WebRTC] Remote stream received');
+      print('[WebRTC] [$role] onRemoteStream callback completed');
+      
+      // Schedule RTC stats logging after 5 seconds
+      _scheduleStatsLogging();
+    } else {
+      print('[WebRTC] [$role] WARNING: onTrack fired but streams is EMPTY!');
+    }
+  }
+  
+  /// Log RTC stats after delay (for debugging video decode)
+  void _scheduleStatsLogging() {
+    Future.delayed(Duration(seconds: 5), () async {
+      await _logRtcStats();
+    });
+  }
+  
+  /// Log RTC stats for debugging
+  Future<void> _logRtcStats() async {
+    if (_peerConnection == null) return;
+    
+    final role = isHost ? 'HOST' : 'CONTROLLER';
+    print('[WebRTC] [$role] === RTC STATS (5s after track) ===');
+    
+    try {
+      final stats = await _peerConnection!.getStats();
+      for (final report in stats) {
+        final type = report.type;
+        final values = report.values;
+        
+        // Log inbound video stats (most important for controller)
+        if (type == 'inbound-rtp' && values['kind'] == 'video') {
+          print('[WebRTC] [$role] INBOUND VIDEO STATS:');
+          print('[WebRTC] [$role]   bytesReceived: ${values['bytesReceived']}');
+          print('[WebRTC] [$role]   packetsReceived: ${values['packetsReceived']}');
+          print('[WebRTC] [$role]   framesDecoded: ${values['framesDecoded']}');
+          print('[WebRTC] [$role]   framesDropped: ${values['framesDropped']}');
+          print('[WebRTC] [$role]   frameWidth: ${values['frameWidth']}');
+          print('[WebRTC] [$role]   frameHeight: ${values['frameHeight']}');
+        }
+        
+        // Log outbound video stats (for host)
+        if (type == 'outbound-rtp' && values['kind'] == 'video') {
+          print('[WebRTC] [$role] OUTBOUND VIDEO STATS:');
+          print('[WebRTC] [$role]   bytesSent: ${values['bytesSent']}');
+          print('[WebRTC] [$role]   packetsSent: ${values['packetsSent']}');
+          print('[WebRTC] [$role]   framesEncoded: ${values['framesEncoded']}');
+        }
+      }
+    } catch (e) {
+      print('[WebRTC] [$role] Stats error: $e');
     }
   }
 

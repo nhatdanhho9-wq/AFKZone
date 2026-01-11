@@ -59,7 +59,17 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
     _webrtcService!.onRemoteStream = (stream) {
       final videoTracks = stream.getVideoTracks();
       final audioTracks = stream.getAudioTracks();
-      print('[RemoteSession] onRemoteStream: video=${videoTracks.length}, audio=${audioTracks.length}');
+      final role = widget.isHost ? 'HOST' : 'CONTROLLER';
+      print('[RemoteSession] [$role] *** onRemoteStream CALLBACK ***');
+      print('[RemoteSession] [$role] stream.id=${stream.id}');
+      print('[RemoteSession] [$role] videoTracks=${videoTracks.length}, audioTracks=${audioTracks.length}');
+      
+      for (int i = 0; i < videoTracks.length; i++) {
+        final vt = videoTracks[i];
+        print('[RemoteSession] [$role] videoTrack[$i]: id=${vt.id}, enabled=${vt.enabled}, muted=${vt.muted}');
+      }
+      
+      print('[RemoteSession] [$role] Setting _remoteRenderer.srcObject...');
       setState(() {
         _remoteRenderer.srcObject = stream;
         _isConnected = true;
@@ -67,8 +77,11 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
         _trackCount = videoTracks.length + audioTracks.length;
         _hasVideoTrack = videoTracks.isNotEmpty;
       });
+      print('[RemoteSession] [$role] Renderer srcObject set. hasVideoTrack=$_hasVideoTrack');
+      
       // Check for no video track error
       if (videoTracks.isEmpty && !widget.isHost) {
+        print('[RemoteSession] [$role] ERROR: No video track received from host!');
         setState(() {
           _error = 'Connected but no video track received from host.';
         });
