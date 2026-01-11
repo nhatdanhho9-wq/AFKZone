@@ -424,6 +424,7 @@ class _RemoteSessionScreenState extends State<RemoteSessionScreen> {
             RTCVideoView(
               _remoteRenderer,
               objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+              filterQuality: FilterQuality.medium, // Improve rendering on emulators
             )
           else if (_isConnecting)
             Center(

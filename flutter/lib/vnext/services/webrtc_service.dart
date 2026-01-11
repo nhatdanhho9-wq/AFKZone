@@ -192,9 +192,9 @@ class WebRTCService {
     final offer = await _peerConnection!.createOffer();
     print('[WebRTC] [CONTROLLER] SDP offer created, length=${offer.sdp?.length ?? 0}');
     
-    // Force VP8 codec for LDPlayer/Emulator compatibility
+    // Force VP9 codec (better SW decoder support on emulators than VP8 HW)
     String sdp = offer.sdp ?? '';
-    sdp = _preferCodec(sdp, 'VP8');
+    sdp = _preferCodec(sdp, 'VP9'); // Changed from VP8
     final newOffer = RTCSessionDescription(sdp, offer.type);
     
     // setLocalDescription triggers ICE candidate generation
@@ -318,9 +318,9 @@ class WebRTCService {
     final answer = await _peerConnection!.createAnswer();
     print('[WebRTC] [HOST] SDP answer created, length=${answer.sdp?.length ?? 0}');
     
-    // Force VP8 codec in answer as well
+    // Force VP9 codec in answer as well
     String answerSdp = answer.sdp ?? '';
-    answerSdp = _preferCodec(answerSdp, 'VP8');
+    answerSdp = _preferCodec(answerSdp, 'VP9'); // Changed from VP8
     final newAnswer = RTCSessionDescription(answerSdp, answer.type);
     
     print('[WebRTC] [HOST] Setting local description (triggers ICE gathering)...');
