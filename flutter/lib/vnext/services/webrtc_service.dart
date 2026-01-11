@@ -5,6 +5,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'remote_service.dart';
+import 'device_service.dart';
 
 /// WebRTC Service for Remote Preview v0.1
 /// Handles: PeerConnection, signaling WebSocket, SDP/ICE
@@ -327,11 +328,27 @@ class WebRTCService {
         // 2-step host_ready flow
         case 'enable_screen_capture':
           // Host receives: show MediaProjection prompt
-          // Try multiple field names for request_id
+          // CRITICAL: Only proceed if THIS device is the target device
           final requestId = payload['request_id']?.toString() ?? 
                            data['request_id']?.toString() ?? 
                            '';
-          print('[WebRTC] >>> HOST: enable_screen_capture, request_id=$requestId, payload=$payload');
+          final targetDeviceId = payload['target_device_id']?.toString() ?? 
+                                 data['target_device_id']?.toString() ?? 
+                                 '';
+          final myDeviceId = DeviceService.deviceId ?? '';
+          
+          print('[WebRTC] >>> HOST: enable_screen_capture received');
+          print('[WebRTC] >>> HOST: request_id=$requestId');
+          print('[WebRTC] >>> HOST: target_device_id=$targetDeviceId, my_device_id=$myDeviceId');
+          
+          if (targetDeviceId.isNotEmpty && targetDeviceId != myDeviceId) {
+            // NOT the target device - ignore this message
+            print('[WebRTC] >>> HOST: IGNORING - this device is NOT the target (target=$targetDeviceId, me=$myDeviceId)');
+            break;
+          }
+          
+          // This IS the target device (or no target specified) - proceed with capture
+          print('[WebRTC] >>> HOST: PROCEEDING - this device IS the target');
           onEnableScreenCapture?.call(requestId);
           break;
         case 'wait_host_ready':
