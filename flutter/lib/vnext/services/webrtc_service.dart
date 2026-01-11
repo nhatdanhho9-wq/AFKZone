@@ -343,6 +343,9 @@ class WebRTCService {
     });
 
     print('[WebRTC] [HOST] _handleOffer() complete - waiting for ICE candidates');
+    
+    // Schedule stats logging for HOST to check outbound media
+    _scheduleStatsLogging();
   }
 
   /// Handle SDP answer (viewer receives from host)
@@ -488,6 +491,21 @@ class WebRTCService {
     print('[WebRTC] [$role] === RTC STATS (5s after track) ===');
     
     try {
+      // Log sender track state for HOST
+      if (isHost) {
+        final senders = await _peerConnection!.getSenders();
+        print('[WebRTC] [$role] SENDERS COUNT: ${senders.length}');
+        for (int i = 0; i < senders.length; i++) {
+          final sender = senders[i];
+          final track = sender.track;
+          if (track != null) {
+            print('[WebRTC] [$role] Sender[$i]: kind=${track.kind}, enabled=${track.enabled}, muted=${track.muted}');
+          } else {
+            print('[WebRTC] [$role] Sender[$i]: track is NULL');
+          }
+        }
+      }
+      
       final stats = await _peerConnection!.getStats();
       for (final report in stats) {
         final type = report.type;
@@ -498,6 +516,7 @@ class WebRTCService {
           print('[WebRTC] [$role] INBOUND VIDEO STATS:');
           print('[WebRTC] [$role]   bytesReceived: ${values['bytesReceived']}');
           print('[WebRTC] [$role]   packetsReceived: ${values['packetsReceived']}');
+          print('[WebRTC] [$role]   packetsLost: ${values['packetsLost']}');
           print('[WebRTC] [$role]   framesDecoded: ${values['framesDecoded']}');
           print('[WebRTC] [$role]   framesDropped: ${values['framesDropped']}');
           print('[WebRTC] [$role]   frameWidth: ${values['frameWidth']}');
@@ -510,6 +529,27 @@ class WebRTCService {
           print('[WebRTC] [$role]   bytesSent: ${values['bytesSent']}');
           print('[WebRTC] [$role]   packetsSent: ${values['packetsSent']}');
           print('[WebRTC] [$role]   framesEncoded: ${values['framesEncoded']}');
+          print('[WebRTC] [$role]   retransmittedPacketsSent: ${values['retransmittedPacketsSent']}');
+          print('[WebRTC] [$role]   qualityLimitationReason: ${values['qualityLimitationReason']}');
+        }
+        
+        // Log candidate-pair stats (selected ICE path)
+        if (type == 'candidate-pair' && values['state'] == 'succeeded') {
+          print('[WebRTC] [$role] SELECTED CANDIDATE PAIR:');
+          print('[WebRTC] [$role]   state: ${values['state']}');
+          print('[WebRTC] [$role]   localCandidateId: ${values['localCandidateId']}');
+          print('[WebRTC] [$role]   remoteCandidateId: ${values['remoteCandidateId']}');
+          print('[WebRTC] [$role]   bytesSent: ${values['bytesSent']}');
+          print('[WebRTC] [$role]   bytesReceived: ${values['bytesReceived']}');
+          print('[WebRTC] [$role]   currentRoundTripTime: ${values['currentRoundTripTime']}');
+        }
+        
+        // Log local/remote candidate types
+        if (type == 'local-candidate') {
+          print('[WebRTC] [$role] LOCAL CANDIDATE: id=${report.id}, type=${values['candidateType']}, address=${values['address']}:${values['port']}');
+        }
+        if (type == 'remote-candidate') {
+          print('[WebRTC] [$role] REMOTE CANDIDATE: id=${report.id}, type=${values['candidateType']}, address=${values['address']}:${values['port']}');
         }
       }
     } catch (e) {
