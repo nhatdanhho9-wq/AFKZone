@@ -13,7 +13,7 @@ import 'services/device_service.dart';
 import 'services/remote_service.dart';
 
 /// BUILD VERSION - Update this on each build to verify correct APK
-const String kBuildVersion = 'VNEXT-2026-01-12-v5'; // Increment on each build
+const String kBuildVersion = 'VNEXT-2026-01-12-v6'; // Increment on each build
 
 /// vNext App - Server-driven mobile UI with auth flow
 /// Tabs rendered from /public/mobile-ui-config
@@ -159,29 +159,58 @@ class _VNextAppState extends State<VNextApp> {
               if (!_shownPendingNotifications.contains(req.requestId)) {
               _shownPendingNotifications.add(req.requestId);
               if (mounted) {
-                // DETAILED LOGGING: Debug target device decision
+                // ROUTING BASED ON request_type
                 print('[VNextApp] ========================================');
-                print('[VNextApp] PENDING WATCHER - DEVICE CHECK');
+                print('[VNextApp] PENDING WATCHER - ROUTING CHECK');
                 print('[VNextApp] request_id: ${req.requestId}');
+                print('[VNextApp] request_type: ${req.requestType}');
                 print('[VNextApp] my_device_id: $myDeviceId');
-                print('[VNextApp] target_device_id (share_creator): ${req.targetDeviceId}');
+                print('[VNextApp] target_device_id: ${req.targetDeviceId}');
+                print('[VNextApp] share_creator_device_id: ${req.shareCreatorDeviceId}');
                 
-                // If this device is the share creator (targetDeviceId) → popup approve dialog
-                // Else → just show badge notification
-                final isShareCreator = myDeviceId != null && 
+                // Calculate routing flags
+                final isTargetDevice = myDeviceId != null && 
                     myDeviceId.isNotEmpty &&
                     req.targetDeviceId != null && 
-                    (req.targetDeviceId?.isNotEmpty ?? false) &&
                     req.targetDeviceId == myDeviceId;
                     
+                final isShareCreator = myDeviceId != null &&
+                    myDeviceId.isNotEmpty &&
+                    req.shareCreatorDeviceId != null && 
+                    req.shareCreatorDeviceId == myDeviceId;
+                
+                print('[VNextApp] isTargetDevice: $isTargetDevice');
                 print('[VNextApp] isShareCreator: $isShareCreator');
+                
+                // Routing logic based on request_type:
+                // - direct_device: ONLY target_device shows approve popup
+                // - share_token: ONLY share_creator shows approve popup  
+                // - null/unknown: fallback to target_device_id
+                bool shouldShowPopup = false;
+                String reason = '';
+                
+                if (req.requestType == 'direct_device') {
+                  // Direct device flow: only target device shows popup
+                  shouldShowPopup = isTargetDevice;
+                  reason = isTargetDevice ? 'direct_device + isTargetDevice' : 'direct_device but NOT target';
+                } else if (req.requestType == 'share_token') {
+                  // Share token flow: only share creator shows popup
+                  shouldShowPopup = isShareCreator;
+                  reason = isShareCreator ? 'share_token + isShareCreator' : 'share_token but NOT share_creator';
+                } else {
+                  // Fallback for null/unknown: try target first, then share_creator
+                  shouldShowPopup = isTargetDevice || isShareCreator;
+                  reason = 'fallback: isTarget=$isTargetDevice, isCreator=$isShareCreator';
+                }
+                
+                print('[VNextApp] shouldShowPopup: $shouldShowPopup ($reason)');
                 print('[VNextApp] ========================================');
                 
-                if (isShareCreator) {
-                  print('[VNextApp] >>> ACTION: Showing approve popup (this IS the share creator/target)');
+                if (shouldShowPopup) {
+                  print('[VNextApp] >>> ACTION: Showing approve popup');
                   _showApproveDialog(req);
                 } else {
-                  print('[VNextApp] >>> ACTION: Showing badge only (this is NOT the target device)');
+                  print('[VNextApp] >>> ACTION: Showing badge only');
                   _showPendingBadge(req);
                 }
               }
@@ -302,7 +331,8 @@ class _VNextAppState extends State<VNextApp> {
                   print('[VNextApp] ========================================');
                   
                   if (isTargetDevice) {
-                    // THIS device is the target - open host session
+                    // THIS device is the target - open host session locally.
+                    // (In multi-device flow, the real target device will open via host-attach polling.)
                     print('[VNextApp] >>> ACTION: Opening RemoteSessionScreen (this IS the target device)');
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Request approved - waiting for screen capture...'), backgroundColor: Colors.green),
@@ -313,7 +343,6 @@ class _VNextAppState extends State<VNextApp> {
                           sessionId: result.sessionId ?? req.requestId,
                           isHost: true,
                           wsToken: null,
-                          requestId: req.requestId,
                         ),
                       ),
                     );

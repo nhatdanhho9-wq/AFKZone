@@ -317,7 +317,19 @@ class PendingRequest {
   final String? requesterAccountId;
   final String? requesterDeviceId;
   final String? requesterName;
-  final String? targetDeviceId; // Device that should capture screen (direct flow: target_device_id, share flow: share_creator_device_id)
+  
+  /// Request type: 'direct_device' or 'share_token'
+  /// - direct_device: controller selected a specific device to remote
+  /// - share_token: controller used a share token (may target different device than share creator)
+  final String? requestType;
+  
+  /// Device that should capture screen (the real host device).
+  /// Comes from backend field `target_device_id`.
+  final String? targetDeviceId;
+
+  /// Device that created the share token (owner/share-creator).
+  /// Comes from backend field `share_creator_device_id` (may be null for direct-device flow).
+  final String? shareCreatorDeviceId;
   final String status;
   final String createdAt;
 
@@ -326,22 +338,22 @@ class PendingRequest {
     this.requesterAccountId,
     this.requesterDeviceId,
     this.requesterName,
+    this.requestType,
     this.targetDeviceId,
+    this.shareCreatorDeviceId,
     required this.status,
     required this.createdAt,
   });
 
   factory PendingRequest.fromJson(Map<String, dynamic> json) {
-    // For direct device flow: use target_device_id
-    // For share token flow: use share_creator_device_id as fallback
-    final targetDeviceId = json['target_device_id'] ?? json['share_creator_device_id'];
-    
     return PendingRequest(
       requestId: json['request_id'] ?? '',
       requesterAccountId: json['requester_account_id'],
       requesterDeviceId: json['requester_device_id'],
       requesterName: null,
-      targetDeviceId: targetDeviceId,
+      requestType: json['request_type'],
+      targetDeviceId: json['target_device_id'],
+      shareCreatorDeviceId: json['share_creator_device_id'],
       status: json['status'] ?? 'pending',
       createdAt: json['created_at'] ?? '',
     );
