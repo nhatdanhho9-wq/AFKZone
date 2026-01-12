@@ -1,0 +1,111 @@
+name: vNext APK Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_ref:
+        description: 'Commit hash or tag to build'
+        required: true
+        default: '682ffd854'
+      api_base:
+        description: 'VNEXT_API_BASE URL'
+        required: true
+        default: 'http://171.253.168.44:21121'
+      build_type:
+        description: 'Build type (debug/release)'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
+
+env:
+  FLUTTER_VERSION: "3.24.5"
+
+jobs:
+  build-vnext-apk:
+    name: Build vNext APK
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.commit_ref }}
+          submodules: recursive
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Flutter doctor
+        run: flutter doctor -v
+
+      - name: Get dependencies
+        working-directory: flutter
+        run: flutter pub get
+
+      - name: Build vNext APK
+        working-directory: flutter
+        env:
+          AFK_VNEXT_ONLY: "1"
+        run: |
+          echo "Building vNext APK from commit: ${{ github.event.inputs.commit_ref }}"
+          echo "API Base: ${{ github.event.inputs.api_base }}"
+          echo "Build Type: ${{ github.event.inputs.build_type }}"
+          
+          flutter build apk \
+            --${{ github.event.inputs.build_type }} \
+            -t lib/vnext/main_vnext.dart \
+            --dart-define=API_ENV=qa \
+            --dart-define=VNEXT_API_BASE=${{ github.event.inputs.api_base }}
+
+      - name: Get APK info
+        id: apk-info
+        run: |
+          APK_PATH=$(find flutter/build/app/outputs/apk -name "*.apk" | head -1)
+          echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
+          echo "apk_name=$(basename $APK_PATH)" >> $GITHUB_OUTPUT
+          echo "apk_size=$(du -h $APK_PATH | cut -f1)" >> $GITHUB_OUTPUT
+          echo "sha256=$(sha256sum $APK_PATH | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+          echo ""
+          echo "=== APK Info ==="
+          echo "Path: $APK_PATH"
+          echo "SHA256: $(sha256sum $APK_PATH)"
+          ls -la $APK_PATH
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vnext-apk-${{ github.event.inputs.commit_ref }}-${{ github.event.inputs.build_type }}
+          path: ${{ steps.apk-info.outputs.apk_path }}
+          retention-days: 30
+
+      - name: Create build summary
+        run: |
+          echo "## vNext APK Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Commit** | \`${{ github.event.inputs.commit_ref }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Build Type** | ${{ github.event.inputs.build_type }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **API Base** | ${{ github.event.inputs.api_base }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **APK Name** | ${{ steps.apk-info.outputs.apk_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Size** | ${{ steps.apk-info.outputs.apk_size }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **SHA256** | \`${{ steps.apk-info.outputs.sha256 }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Build Command" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "AFK_VNEXT_ONLY=1 flutter build apk --${{ github.event.inputs.build_type }} -t lib/vnext/main_vnext.dart --dart-define=API_ENV=qa --dart-define=VNEXT_API_BASE=${{ github.event.inputs.api_base }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
