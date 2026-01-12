@@ -156,17 +156,32 @@ class _VNextAppState extends State<VNextApp> {
           final pending = await RemoteService.getPending();
           final myDeviceId = DeviceService.deviceId;
           for (final req in pending) {
-            if (!_shownPendingNotifications.contains(req.requestId)) {
+              if (!_shownPendingNotifications.contains(req.requestId)) {
               _shownPendingNotifications.add(req.requestId);
               if (mounted) {
+                // DETAILED LOGGING: Debug target device decision
+                print('[VNextApp] ========================================');
+                print('[VNextApp] PENDING WATCHER - DEVICE CHECK');
+                print('[VNextApp] request_id: ${req.requestId}');
+                print('[VNextApp] my_device_id: $myDeviceId');
+                print('[VNextApp] target_device_id (share_creator): ${req.targetDeviceId}');
+                
                 // If this device is the share creator (targetDeviceId) → popup approve dialog
                 // Else → just show badge notification
                 final isShareCreator = myDeviceId != null && 
+                    myDeviceId.isNotEmpty &&
                     req.targetDeviceId != null && 
+                    req.targetDeviceId.isNotEmpty &&
                     req.targetDeviceId == myDeviceId;
+                    
+                print('[VNextApp] isShareCreator: $isShareCreator');
+                print('[VNextApp] ========================================');
+                
                 if (isShareCreator) {
+                  print('[VNextApp] >>> ACTION: Showing approve popup (this IS the share creator/target)');
                   _showApproveDialog(req);
                 } else {
+                  print('[VNextApp] >>> ACTION: Showing badge only (this is NOT the target device)');
                   _showPendingBadge(req);
                 }
               }
