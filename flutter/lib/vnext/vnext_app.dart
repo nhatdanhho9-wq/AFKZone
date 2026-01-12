@@ -250,19 +250,34 @@ class _VNextAppState extends State<VNextApp> {
               final result = await RemoteService.approve(req.requestId);
               if (mounted) {
                 if (result.success) {
-                  // Check if THIS device is the target device for screen capture
+                  // CRITICAL: Check if THIS device is the target device for screen capture
                   final myDeviceId = DeviceService.deviceId;
-                  final isTargetDevice = myDeviceId != null && myDeviceId == req.targetDeviceId;
+                  final targetDeviceId = req.targetDeviceId;
                   
-                  print('[VNextApp] Approve success: session=${result.sessionId}, requestId=${req.requestId}');
-                  print('[VNextApp] Device check: myDeviceId=$myDeviceId, targetDeviceId=${req.targetDeviceId}, isTargetDevice=$isTargetDevice');
+                  // Enhanced logging for debugging
+                  print('[VNextApp] ========================================');
+                  print('[VNextApp] APPROVE SUCCESS - DEVICE CHECK');
+                  print('[VNextApp] request_id: ${req.requestId}');
+                  print('[VNextApp] session_id: ${result.sessionId}');
+                  print('[VNextApp] my_device_id: $myDeviceId');
+                  print('[VNextApp] target_device_id: $targetDeviceId');
+                  
+                  // Only open capture if BOTH IDs are valid AND match
+                  final bool isTargetDevice = myDeviceId != null && 
+                                               myDeviceId.isNotEmpty &&
+                                               targetDeviceId != null && 
+                                               targetDeviceId.isNotEmpty &&
+                                               myDeviceId == targetDeviceId;
+                  
+                  print('[VNextApp] isTargetDevice: $isTargetDevice');
+                  print('[VNextApp] ========================================');
                   
                   if (isTargetDevice) {
                     // THIS device is the target - open host session
+                    print('[VNextApp] >>> ACTION: Opening RemoteSessionScreen (this IS the target device)');
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Request approved - waiting for screen capture...'), backgroundColor: Colors.green),
                     );
-                    print('[VNextApp] Navigating to RemoteSessionScreen as HOST for session=${result.sessionId}, requestId=${req.requestId}');
                     Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => RemoteSessionScreen(
@@ -274,11 +289,12 @@ class _VNextAppState extends State<VNextApp> {
                       ),
                     );
                   } else {
-                    // NOT the target device - just show confirmation, target device will receive enable_screen_capture
-                    print('[VNextApp] Approved from non-target device. Target device (${req.targetDeviceId}) will receive enable_screen_capture via WS.');
+                    // NOT the target device - just show confirmation, DO NOT open RemoteSessionScreen
+                    print('[VNextApp] >>> ACTION: NOT opening RemoteSessionScreen (this is NOT the target device)');
+                    print('[VNextApp] >>> Target device ($targetDeviceId) will receive enable_screen_capture via WS');
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('Request approved. Screen capture will start on the target device.'),
+                        content: Text('Request approved. Screen capture will start on target device.'),
                         backgroundColor: Colors.green,
                         duration: Duration(seconds: 4),
                       ),
