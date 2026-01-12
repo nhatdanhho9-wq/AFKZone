@@ -171,7 +171,7 @@ class _VNextAppState extends State<VNextApp> {
                 final isShareCreator = myDeviceId != null && 
                     myDeviceId.isNotEmpty &&
                     req.targetDeviceId != null && 
-                    req.targetDeviceId.isNotEmpty &&
+                    (req.targetDeviceId?.isNotEmpty ?? false) &&
                     req.targetDeviceId == myDeviceId;
                     
                 print('[VNextApp] isShareCreator: $isShareCreator');
