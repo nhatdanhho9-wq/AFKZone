@@ -13,7 +13,7 @@ import 'services/device_service.dart';
 import 'services/remote_service.dart';
 
 /// BUILD VERSION - Update this on each build to verify correct APK
-const String kBuildVersion = 'VNEXT-2026-01-12-v4'; // Increment on each build
+const String kBuildVersion = 'VNEXT-2026-01-12-v5'; // Increment on each build
 
 /// vNext App - Server-driven mobile UI with auth flow
 /// Tabs rendered from /public/mobile-ui-config

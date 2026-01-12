@@ -177,41 +177,24 @@ class RemoteService {
   static Future<ApproveResult> approve(String requestId) async {
     try {
       final headers = await AuthService.getAuthHeaders();
-      print('[RemoteService] approve: calling /remote/approve for request=$requestId');
       final response = await http.post(
         Uri.parse('${ApiConfig.baseUrl}/remote/approve'),
         headers: headers,
         body: json.encode({'request_id': requestId}),
       ).timeout(Duration(seconds: 15));
 
-      print('[RemoteService] approve: status=${response.statusCode}, body=${response.body}');
       final data = json.decode(response.body);
       
       if (response.statusCode == 200) {
-        // Try multiple field names for host token
-        final hostToken = data['host_token'] ?? data['ws_token'] ?? data['token'];
-        final sessionId = data['session_id'] ?? data['sessionId'];
-        final controllerToken = data['controller_token'] ?? data['controllerToken'];
-        
-        print('[RemoteService] approve parsed: session=$sessionId, hostToken=${hostToken != null ? 'present (${hostToken.toString().length} chars)' : 'NULL'}, controllerToken=${controllerToken != null ? 'present' : 'NULL'}');
-        print('[RemoteService] approve raw keys: ${data.keys.toList()}');
-        
-        if (hostToken == null) {
-          print('[RemoteService] WARNING: host_token is NULL in approve response!');
-        }
-        
         return ApproveResult(
           success: true,
-          sessionId: sessionId,
-          controllerToken: controllerToken,
-          hostToken: hostToken,
+          sessionId: data['session_id'],
+          controllerToken: data['controller_token'],
         );
       } else {
-        print('[RemoteService] approve failed: ${response.body}');
         return ApproveResult(success: false, error: _asString(data['detail']).isNotEmpty ? _asString(data['detail']) : 'Approve failed');
       }
     } catch (e) {
-      print('[RemoteService] approve exception: $e');
       return ApproveResult(success: false, error: e.toString());
     }
   }
@@ -233,112 +216,7 @@ class RemoteService {
     }
   }
 
-  /// Cancel a remote request (requester side)
-  static Future<bool> cancelRequest(String requestId) async {
-    try {
-      final headers = await AuthService.getAuthHeaders();
-      final response = await http.post(
-        Uri.parse('${ApiConfig.baseUrl}/remote/cancel'),
-        headers: headers,
-        body: json.encode({'request_id': requestId}),
-      ).timeout(Duration(seconds: 15));
-
-      print('[RemoteService] cancelRequest $requestId: ${response.statusCode}');
-      return response.statusCode == 200;
-    } catch (e) {
-      print('[RemoteService] cancelRequest error: $e');
-      return false;
-    }
-  }
-
-  /// Host signals ready after MediaProjection enabled (2-step flow)
-  /// Returns HostReadyResult with host_token and signaling_ws_url
-  static Future<HostReadyResult> hostReady(String requestId, {bool screenCapture = true}) async {
-    try {
-      final headers = await AuthService.getAuthHeaders();
-      final url = '${ApiConfig.baseUrl}/remote/host-ready/$requestId?screen_capture=$screenCapture';
-      print('[RemoteService] hostReady: calling $url');
-      final response = await http.post(
-        Uri.parse(url),
-        headers: headers,
-      ).timeout(Duration(seconds: 15));
-
-      // Log RAW response BEFORE any parsing
-      print('[RemoteService] hostReady RAW response:');
-      print('  status: ${response.statusCode}');
-      print('  content-type: ${response.headers['content-type']}');
-      print('  body length: ${response.body.length}');
-      print('  body preview: ${response.body.length > 200 ? response.body.substring(0, 200) : response.body}');
-      
-      // Check content-type before parsing
-      final contentType = response.headers['content-type'] ?? '';
-      if (!contentType.contains('application/json')) {
-        print('[RemoteService] hostReady ERROR: Response is not JSON! content-type=$contentType');
-        return HostReadyResult(
-          success: false, 
-          error: 'Server returned non-JSON response (${response.statusCode}): ${response.body.length > 100 ? response.body.substring(0, 100) : response.body}'
-        );
-      }
-      
-      // Safe JSON parse
-      dynamic data;
-      try {
-        data = json.decode(response.body);
-      } catch (parseError) {
-        print('[RemoteService] hostReady JSON parse error: $parseError');
-        return HostReadyResult(success: false, error: 'Invalid JSON: ${response.body.length > 100 ? response.body.substring(0, 100) : response.body}');
-      }
-      
-      if (response.statusCode == 200) {
-        // Try multiple field names for host_token
-        final hostToken = data['host_token'] ?? data['ws_token'] ?? data['token'];
-        final sessionId = data['session_id'] ?? data['sessionId'];
-        final signalingWsUrl = data['signaling_ws_url'] ?? data['ws_url'];
-        
-        print('[RemoteService] hostReady parsed: sessionId=$sessionId, hostToken=${hostToken != null ? 'present (${hostToken.length} chars)' : 'NULL'}, wsUrl=${signalingWsUrl ?? 'NULL'}');
-        print('[RemoteService] hostReady raw keys: ${data.keys.toList()}');
-        
-        if (hostToken == null) {
-          print('[RemoteService] WARNING: host_token is NULL in hostReady response!');
-        }
-        
-        return HostReadyResult(
-          success: true,
-          sessionId: sessionId,
-          hostToken: hostToken,
-          signalingWsUrl: signalingWsUrl,
-        );
-      } else {
-        return HostReadyResult(success: false, error: data['detail']?.toString() ?? 'Host ready failed (${response.statusCode})');
-      }
-    } catch (e) {
-      print('[RemoteService] hostReady exception: $e');
-      return HostReadyResult(success: false, error: e.toString());
-    }
-  }
-
-  /// Report ICE state to server for diagnostics
-  /// POST /sessions/{id}/ice-state
-  static Future<void> reportIceState(String sessionId, String iceState) async {
-    try {
-      final headers = await AuthService.getAuthHeaders();
-      final url = '${ApiConfig.baseUrl}/sessions/$sessionId/ice-state';
-      print('[RemoteService] reportIceState: $url, state=$iceState');
-      
-      final response = await http.post(
-        Uri.parse(url),
-        headers: headers,
-        body: json.encode({'ice_state': iceState}),
-      ).timeout(Duration(seconds: 5));
-      
-      print('[RemoteService] reportIceState: status=${response.statusCode}');
-    } catch (e) {
-      print('[RemoteService] reportIceState error: $e');
-    }
-  }
-
   /// Get TURN credentials for a session
-  /// Throws SessionExpiredException if session is expired (404)
   static Future<TurnCredentials?> getTurnCredentials(String sessionId) async {
     try {
       final headers = await AuthService.getAuthHeaders();
@@ -350,16 +228,9 @@ class RemoteService {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         return TurnCredentials.fromJson(data);
-      } else if (response.statusCode == 404) {
-        // Session expired or not found - need to re-approve
-        print('[RemoteService] getTurnCredentials 404: session expired or not found');
-        throw SessionExpiredException('Session expired. Please re-approve the connection.');
-      } else {
-        print('[RemoteService] getTurnCredentials failed: ${response.statusCode}');
-        return null;
       }
+      return null;
     } catch (e) {
-      if (e is SessionExpiredException) rethrow;
       print('[RemoteService] getTurnCredentials error: $e');
       return null;
     }
@@ -446,7 +317,7 @@ class PendingRequest {
   final String? requesterAccountId;
   final String? requesterDeviceId;
   final String? requesterName;
-  final String? targetDeviceId; // share_creator_device_id - the device that created the share token
+  final String? targetDeviceId; // Device that should capture screen (direct flow: target_device_id, share flow: share_creator_device_id)
   final String status;
   final String createdAt;
 
@@ -461,12 +332,16 @@ class PendingRequest {
   });
 
   factory PendingRequest.fromJson(Map<String, dynamic> json) {
+    // For direct device flow: use target_device_id
+    // For share token flow: use share_creator_device_id as fallback
+    final targetDeviceId = json['target_device_id'] ?? json['share_creator_device_id'];
+    
     return PendingRequest(
       requestId: json['request_id'] ?? '',
       requesterAccountId: json['requester_account_id'],
       requesterDeviceId: json['requester_device_id'],
-      requesterName: json['requester_name'],
-      targetDeviceId: json['target_device_id'] ?? json['share_creator_device_id'],
+      requesterName: null,
+      targetDeviceId: targetDeviceId,
       status: json['status'] ?? 'pending',
       createdAt: json['created_at'] ?? '',
     );
@@ -478,21 +353,9 @@ class ApproveResult {
   final bool success;
   final String? sessionId;
   final String? controllerToken;
-  final String? hostToken;
   final String? error;
 
-  ApproveResult({required this.success, this.sessionId, this.controllerToken, this.hostToken, this.error});
-}
-
-/// Host ready result (from POST /remote/host-ready)
-class HostReadyResult {
-  final bool success;
-  final String? sessionId;
-  final String? hostToken;
-  final String? signalingWsUrl;
-  final String? error;
-
-  HostReadyResult({required this.success, this.sessionId, this.hostToken, this.signalingWsUrl, this.error});
+  ApproveResult({required this.success, this.sessionId, this.controllerToken, this.error});
 }
 
 /// TURN credentials
@@ -536,13 +399,4 @@ class HostAttachResult {
   final String? hostToken;
   final String? error;
   HostAttachResult({required this.success, this.sessionId, this.hostToken, this.error});
-}
-
-/// Exception thrown when a session has expired (e.g., server restart, 404 on turn-credentials)
-class SessionExpiredException implements Exception {
-  final String message;
-  SessionExpiredException(this.message);
-  
-  @override
-  String toString() => 'SessionExpiredException: $message';
 }
