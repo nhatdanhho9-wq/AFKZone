@@ -130,11 +130,11 @@ class DeviceService {
     _heartbeatTimer = null;
   }
 
-  /// Clear device cache (for account switch)
+  /// Clear device cache (for account switch / logout)
   static Future<void> clearDeviceCache() async {
+    _deviceId = null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_deviceIdKey);
-    _deviceId = null;
     print('[DeviceService] Device cache cleared');
   }
 
@@ -195,52 +195,6 @@ class DeviceService {
       print('[DeviceService] Host attach check error: $e');
     }
   }
-  /// Update device settings via PATCH /devices/{id}
-  static Future<bool> updateDevice(
-    String deviceId, {
-    String? displayName,
-    bool? isFavorite,
-    bool? alwaysRelay,
-  }) async {
-    try {
-      final headers = await AuthService.getAuthHeaders();
-      final body = <String, dynamic>{};
-      if (displayName != null) body['display_name'] = displayName;
-      if (isFavorite != null) body['is_favorite'] = isFavorite;
-      if (alwaysRelay != null) body['always_relay'] = alwaysRelay;
-      
-      if (body.isEmpty) return true;
-      
-      final response = await http.patch(
-        Uri.parse('${ApiConfig.baseUrl}/devices/$deviceId'),
-        headers: headers,
-        body: json.encode(body),
-      ).timeout(const Duration(seconds: 15));
-      
-      print('[DeviceService] updateDevice $deviceId: ${response.statusCode}');
-      return response.statusCode == 200;
-    } catch (e) {
-      print('[DeviceService] updateDevice error: $e');
-      return false;
-    }
-  }
-
-  /// Delete/deactivate device via DELETE /devices/{id}
-  static Future<bool> deleteDevice(String deviceId) async {
-    try {
-      final headers = await AuthService.getAuthHeaders();
-      final response = await http.delete(
-        Uri.parse('${ApiConfig.baseUrl}/devices/$deviceId'),
-        headers: headers,
-      ).timeout(const Duration(seconds: 15));
-
-      print('[DeviceService] deleteDevice $deviceId: ${response.statusCode}');
-      return response.statusCode == 200 || response.statusCode == 204;
-    } catch (e) {
-      print('[DeviceService] deleteDevice error: $e');
-      return false;
-    }
-  }
 
   /// Get current device ID
   static String? get deviceId => _deviceId;
@@ -253,8 +207,6 @@ class Device {
   final String platform;
   final bool online;
   final String? lastSeen;
-  final bool isFavorite;
-  final bool alwaysRelay;
 
   Device({
     required this.id,
@@ -262,19 +214,15 @@ class Device {
     required this.platform,
     required this.online,
     this.lastSeen,
-    this.isFavorite = false,
-    this.alwaysRelay = false,
   });
 
   factory Device.fromJson(Map<String, dynamic> json) {
     return Device(
       id: json['device_id'] ?? json['id'] ?? '',
-      name: json['display_name'] ?? json['device_name'] ?? json['name'] ?? '',
+      name: json['device_name'] ?? json['name'] ?? '',
       platform: json['device_type'] ?? json['platform'] ?? 'unknown',
       online: json['online'] ?? false,
       lastSeen: json['last_seen'],
-      isFavorite: json['is_favorite'] ?? json['favorite'] ?? false,
-      alwaysRelay: json['always_relay'] ?? json['relay'] ?? false,
     );
   }
 }

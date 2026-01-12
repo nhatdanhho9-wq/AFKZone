@@ -39,7 +39,7 @@ class HostService {
         return false;
       }
 
-      final connected = await _webrtcService!.connectSignaling();
+      final connected = await _webrtcService!.connectSignaling(wsToken: null);
       if (!connected) {
         onError?.call('Failed to connect signaling');
         return false;
