@@ -34,23 +34,54 @@ class _PendingRequestsScreenState extends State<PendingRequestsScreen> {
   Future<void> _approve(PendingRequest request) async {
     final result = await RemoteService.approve(request.requestId);
     if (result.success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Approved! Starting host session...')),
-      );
-      // NEW FLOW: Navigate to RemoteSessionScreen with requestId
-      // Host will show MediaProjection dialog → call /remote/host-ready → get host_token → connect WS
-      print('[PendingRequests] Navigating to RemoteSessionScreen as HOST with requestId=${request.requestId}');
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => RemoteSessionScreen(
-            sessionId: result.sessionId ?? request.requestId,
-            isHost: true,
-            wsToken: null, // Token comes from host-ready, not approve
-            requestId: request.requestId, // For host-ready call
+      // CRITICAL: Check if THIS device is the target device for screen capture
+      final myDeviceId = DeviceService.deviceId;
+      final targetDeviceId = request.targetDeviceId;
+      
+      // Enhanced logging
+      print('[PendingRequests] ========================================');
+      print('[PendingRequests] APPROVE SUCCESS - DEVICE CHECK');
+      print('[PendingRequests] request_id: ${request.requestId}');
+      print('[PendingRequests] my_device_id: $myDeviceId');
+      print('[PendingRequests] target_device_id: $targetDeviceId');
+      
+      final bool isTargetDevice = myDeviceId != null && 
+                                   myDeviceId.isNotEmpty &&
+                                   targetDeviceId != null && 
+                                   targetDeviceId.isNotEmpty &&
+                                   myDeviceId == targetDeviceId;
+      
+      print('[PendingRequests] isTargetDevice: $isTargetDevice');
+      print('[PendingRequests] ========================================');
+      
+      if (isTargetDevice) {
+        // THIS device is the target - open host session
+        print('[PendingRequests] >>> ACTION: Opening RemoteSessionScreen (this IS the target device)');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Approved! Starting host session...')),
+        );
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => RemoteSessionScreen(
+              sessionId: result.sessionId ?? request.requestId,
+              isHost: true,
+              wsToken: null,
+              requestId: request.requestId,
+            ),
           ),
-        ),
-      );
-      return;
+        );
+        return;
+      } else {
+        // NOT the target device - just show confirmation, DO NOT open RemoteSessionScreen
+        print('[PendingRequests] >>> ACTION: NOT opening RemoteSessionScreen (this is NOT the target device)');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Approved! Screen capture will start on target device.'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Approve failed: ${result.error}')),

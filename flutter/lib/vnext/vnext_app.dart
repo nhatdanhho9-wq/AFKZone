@@ -12,6 +12,9 @@ import 'services/auth_service.dart';
 import 'services/device_service.dart';
 import 'services/remote_service.dart';
 
+/// BUILD VERSION - Update this on each build to verify correct APK
+const String kBuildVersion = 'VNEXT-2026-01-12-v3'; // Increment on each build
+
 /// vNext App - Server-driven mobile UI with auth flow
 /// Tabs rendered from /public/mobile-ui-config
 class VNextApp extends StatefulWidget {
@@ -63,8 +66,19 @@ class _VNextAppState extends State<VNextApp> {
   }
 
   Future<void> _initializeAfterLogin() async {
+    // Log build version for verification
+    print('[VNextApp] ****************************************');
+    print('[VNextApp] BUILD VERSION: $kBuildVersion');
+    print('[VNextApp] ****************************************');
+    
     // Register device and start heartbeat
     await DeviceService.registerDevice(deviceName: 'vNext-Mobile', platform: 'android');
+    
+    // Log device ID for debugging target device issues
+    final myDeviceId = DeviceService.deviceId;
+    print('[VNextApp] MY_DEVICE_ID: $myDeviceId');
+    print('[VNextApp] ****************************************');
+    
     DeviceService.startHeartbeat();
     _startPendingWatcher();
     
