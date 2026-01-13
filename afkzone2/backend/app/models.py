@@ -12,12 +12,6 @@ from pydantic import BaseModel, Field
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=1, max_length=128)
-    # Device auto-registration on login
-    device_id: Optional[str] = Field(default=None, max_length=128)
-    device_name: Optional[str] = Field(default=None, max_length=128)
-    device_type: str = Field(default="android", max_length=32)
-    # For account switch: previous device to invalidate
-    previous_device_id: Optional[str] = Field(default=None, max_length=128)
 
 
 class LoginResponse(BaseModel):
@@ -25,10 +19,6 @@ class LoginResponse(BaseModel):
     token_type: str = "bearer"
     account_id: str
     expires_in: int = 86400
-    # Device registered during login
-    device_id: Optional[str] = None
-    # Flag if account switched (old device cleared)
-    account_switched: bool = False
 
 
 class RegisterRequest(BaseModel):
@@ -52,17 +42,6 @@ class DeviceInfo(BaseModel):
     online: bool
     last_seen: Optional[str] = None
     unattended_mode: str = "disabled"
-    # Metadata (per-account personalization)
-    display_name: Optional[str] = None  # User-friendly name
-    is_favorite: bool = False
-    always_relay: bool = False  # Force TURN relay
-
-
-class DeviceUpdateRequest(BaseModel):
-    """Update device metadata (PATCH /devices/{id})."""
-    display_name: Optional[str] = Field(default=None, max_length=128)
-    is_favorite: Optional[bool] = None
-    always_relay: Optional[bool] = None
 
 
 class DeviceListResponse(BaseModel):
@@ -70,17 +49,12 @@ class DeviceListResponse(BaseModel):
 
 
 class HeartbeatRequest(BaseModel):
-    """Device heartbeat with optional source for TTL tracking."""
-    source: str = Field(default="foreground", pattern="^(foreground|background|service)$")
-    # foreground: app is active on screen
-    # background: app is in background but still running
-    # service: background service heartbeat (may be killed by OS)
+    pass  # Just presence, no payload needed
 
 
 class HeartbeatResponse(BaseModel):
     ok: bool
     server_time: str
-    next_interval_ms: int = 30000  # Suggest 30s heartbeat interval
 
 
 # ==================== TRUSTED ALLOWLIST ====================
@@ -106,9 +80,8 @@ class TrustedRequestCreate(BaseModel):
 
 
 class TrustedApproveRequest(BaseModel):
-    """Owner approves a trust request. If trust=True, save controller device pair for auto-approve."""
+    """Owner approves a trust request."""
     request_id: int
-    trust: bool = False  # If True, save device pair for future auto-approve
 
 
 class TrustedRevokeRequest(BaseModel):
@@ -163,12 +136,15 @@ class RemoteRequestResponse(BaseModel):
 
 class RemoteRequestInfo(BaseModel):
     request_id: str
-    target_device_id: str
+    target_device_id: str  # Device that must enable screen capture (HOST)
     target_device_name: Optional[str] = None
     requester_account_id: Optional[str]
     requester_device_id: Optional[str]
     share_token: Optional[str]
-    share_created_by_device_id: Optional[str] = None
+    # Device that created the share token (for share_token flow).
+    # IMPORTANT: keep JSON key name consistent with mobile client expectation.
+    share_creator_device_id: Optional[str] = None
+    request_type: str  # "direct_device" | "share_token" (REQUIRED)
     status: str
     created_at: str
     expires_at: str
@@ -202,3 +178,10 @@ class RemoteClaimResponse(BaseModel):
     session_id: Optional[str] = None
     signaling_ws_url: Optional[str] = None
     controller_token: Optional[str] = None
+
+
+class RemoteHostReadyResponse(BaseModel):
+    ok: bool
+    session_id: str
+    host_token: str
+    signaling_ws_url: str
