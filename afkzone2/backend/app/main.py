@@ -253,6 +253,29 @@ app.include_router(signaling_router)
 app.include_router(remote_router)
 
 
+# ==================== VALIDATION ERROR HANDLER ====================
+# Convert Pydantic validation errors to standardized {ok, error_code, message} format
+from fastapi.exceptions import RequestValidationError
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Convert validation errors to standardized {ok, error_code, message} format."""
+    errors = exc.errors()
+    if errors:
+        # Get first error message as string
+        first_error = errors[0]
+        loc = ".".join(str(x) for x in first_error.get("loc", []))
+        msg = first_error.get("msg", "Validation error")
+        message = f"{loc}: {msg}" if loc else msg
+    else:
+        message = "Validation error"
+    
+    return JSONResponse(
+        status_code=422,
+        content={"ok": False, "error_code": "VALIDATION_ERROR", "message": message}
+    )
+
+
 @app.on_event("startup")
 def _on_startup() -> None:
     _db_init()

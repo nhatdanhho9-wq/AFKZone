@@ -123,7 +123,10 @@ async def auth_register(req: RegisterRequest) -> JSONResponse:
     
     if existing:
         conn.close()
-        raise HTTPException(status_code=409, detail="Username already exists")
+        return JSONResponse(
+            status_code=409,
+            content={"ok": False, "error_code": "USERNAME_EXISTS", "message": "Username already exists"}
+        )
     
     account_id = secrets.token_urlsafe(16)
     password_hash = hash_password(req.password)
@@ -138,8 +141,8 @@ async def auth_register(req: RegisterRequest) -> JSONResponse:
     return JSONResponse({"ok": True, "account_id": account_id})
 
 
-@router.post("/auth/login", response_model=LoginResponse)
-async def auth_login(req: LoginRequest) -> LoginResponse:
+@router.post("/auth/login")
+async def auth_login(req: LoginRequest) -> JSONResponse:
     """Login and get access token."""
     conn = _db()
     cur = conn.cursor()
@@ -151,15 +154,20 @@ async def auth_login(req: LoginRequest) -> LoginResponse:
     conn.close()
     
     if not row or not verify_password(req.password, row["password_hash"]):
-        raise HTTPException(status_code=401, detail="Invalid username or password")
+        return JSONResponse(
+            status_code=401,
+            content={"ok": False, "error_code": "INVALID_CREDENTIALS", "message": "Invalid username or password"}
+        )
     
     token, expires_at = create_access_token(row["account_id"], req.username)
     
-    return LoginResponse(
-        access_token=token,
-        account_id=row["account_id"],
-        expires_in=86400,
-    )
+    return JSONResponse({
+        "ok": True,
+        "access_token": token,
+        "token_type": "bearer",
+        "account_id": row["account_id"],
+        "expires_in": 86400,
+    })
 
 
 # ==================== DEVICE ENDPOINTS ====================
