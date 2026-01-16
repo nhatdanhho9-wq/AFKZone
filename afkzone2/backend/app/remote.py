@@ -33,6 +33,8 @@ from app.models import (
     HeartbeatResponse,
     LoginRequest,
     LoginResponse,
+    PasswordVerifyRequest,
+    PasswordVerifyResponse,
     RegisterRequest,
     RemoteApproveRequest,
     RemoteApproveResponse,
@@ -49,9 +51,11 @@ from app.models import (
     ShareResolveResponse,
     ShareRevokeRequest,
     TrustedApproveRequest,
+    TrustedApproveResponse,
     TrustedEntry,
     TrustedListResponse,
     TrustedRequestCreate,
+    TrustedRequestResponse,
     TrustedRevokeRequest,
 )
 
@@ -89,6 +93,7 @@ def _init_remote_tables():
         "ALTER TABLE remote_request ADD COLUMN claim_token TEXT",
         "ALTER TABLE remote_request ADD COLUMN controller_token TEXT",
         "ALTER TABLE share_token ADD COLUMN created_by_device_id TEXT",
+        "ALTER TABLE device ADD COLUMN remote_password_hash TEXT",
     ):
         try:
             cur.execute(ddl)
@@ -880,3 +885,287 @@ async def remote_host_ready(
         host_token=host_token,
         signaling_ws_url=f"/sessions/{session.session_id}/ws",
     )
+
+
+# ==================== TRUSTED ALLOWLIST ENDPOINTS ====================
+
+@router.post("/trusted/request", response_model=TrustedRequestResponse)
+async def trusted_request(
+    req: TrustedRequestCreate,
+    user: TokenClaims = Depends(get_current_user),
+):
+    """
+    Request to add a device to trusted list.
+    Requires approval from target device owner.
+    """
+    conn = _db()
+    cur = conn.cursor()
+    
+    # Verify target device exists
+    target = cur.execute(
+        "SELECT account_id, device_name FROM device WHERE device_id = ?",
+        (req.target_device_id,)
+    ).fetchone()
+    
+    if not target:
+        conn.close()
+        return JSONResponse(
+            status_code=404,
+            content={"ok": False, "error_code": "TARGET_NOT_FOUND", "message": "Target device not found"}
+        )
+    
+    # Check for existing pending request
+    existing = cur.execute(
+        """SELECT id FROM trusted_allowlist 
+           WHERE target_device_id = ? AND requester_account_id = ? AND status = 'pending'""",
+        (req.target_device_id, user.account_id)
+    ).fetchone()
+    
+    if existing:
+        conn.close()
+        return JSONResponse(
+            status_code=409,
+            content={"ok": False, "error_code": "REQUEST_EXISTS", "message": "Pending trust request already exists"}
+        )
+    
+    now = _utc_now_iso()
+    expires_at = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat().replace("+00:00", "Z")
+    
+    cur.execute(
+        """INSERT INTO trusted_allowlist 
+           (target_device_id, requester_account_id, requester_device_id, status, created_at, expires_at)
+           VALUES (?, ?, ?, 'pending', ?, ?)""",
+        (req.target_device_id, user.account_id, req.requester_device_id, now, expires_at)
+    )
+    request_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    
+    # Audit log
+    print(f"TRUST_REQUEST trust_request_id={request_id} target_device_id={req.target_device_id} requester_account_id={user.account_id}")
+    
+    return TrustedRequestResponse(
+        trust_request_id=request_id,
+        status="pending",
+        created_at=now,
+        expires_at=expires_at,
+    )
+
+
+@router.post("/trusted/approve", response_model=TrustedApproveResponse)
+async def trusted_approve(
+    req: TrustedApproveRequest,
+    user: TokenClaims = Depends(get_current_user),
+):
+    """
+    Approve a pending trust request.
+    Only target device owner can approve.
+    """
+    conn = _db()
+    cur = conn.cursor()
+    
+    # Get request
+    row = cur.execute(
+        """SELECT ta.id, ta.target_device_id, ta.requester_account_id, ta.status, d.account_id as owner_id
+           FROM trusted_allowlist ta
+           JOIN device d ON ta.target_device_id = d.device_id
+           WHERE ta.id = ?""",
+        (req.request_id,)
+    ).fetchone()
+    
+    if not row:
+        conn.close()
+        return JSONResponse(
+            status_code=404,
+            content={"ok": False, "error_code": "TRUST_NOT_FOUND", "message": "Trust request not found"}
+        )
+    
+    if row["owner_id"] != user.account_id:
+        conn.close()
+        return JSONResponse(
+            status_code=403,
+            content={"ok": False, "error_code": "NOT_OWNER", "message": "Only device owner can approve"}
+        )
+    
+    if row["status"] != "pending":
+        conn.close()
+        return JSONResponse(
+            status_code=409,
+            content={"ok": False, "error_code": "ALREADY_PROCESSED", "message": f"Request already {row['status']}"}
+        )
+    
+    now = _utc_now_iso()
+    permissions = {"allow_input_control": True, "allow_file_transfer": False}
+    
+    cur.execute(
+        "UPDATE trusted_allowlist SET status = 'approved', approved_at = ? WHERE id = ?",
+        (now, req.request_id)
+    )
+    conn.commit()
+    conn.close()
+    
+    # Audit log
+    print(f"TRUST_APPROVE trust_id={req.request_id} target_device_id={row['target_device_id']} approver_account_id={user.account_id} permissions={permissions}")
+    
+    return TrustedApproveResponse(
+        trust_id=req.request_id,
+        status="approved",
+        permissions=permissions,
+    )
+
+
+@router.get("/trusted/list", response_model=TrustedListResponse)
+async def trusted_list(
+    device_id: Optional[str] = None,
+    direction: Optional[str] = None,
+    user: TokenClaims = Depends(get_current_user),
+):
+    """
+    Get list of trusted devices for current user.
+    """
+    conn = _db()
+    cur = conn.cursor()
+    
+    if direction == "inbound":
+        rows = cur.execute(
+            """SELECT ta.* FROM trusted_allowlist ta
+               JOIN device d ON ta.target_device_id = d.device_id
+               WHERE d.account_id = ? AND ta.status = 'approved'""",
+            (user.account_id,)
+        ).fetchall()
+    elif direction == "outbound":
+        rows = cur.execute(
+            "SELECT * FROM trusted_allowlist WHERE requester_account_id = ? AND status = 'approved'",
+            (user.account_id,)
+        ).fetchall()
+    else:
+        rows = cur.execute(
+            """SELECT ta.* FROM trusted_allowlist ta
+               LEFT JOIN device d ON ta.target_device_id = d.device_id
+               WHERE (d.account_id = ? OR ta.requester_account_id = ?) AND ta.status = 'approved'""",
+            (user.account_id, user.account_id)
+        ).fetchall()
+    
+    conn.close()
+    
+    entries = [
+        TrustedEntry(
+            id=r["id"],
+            target_device_id=r["target_device_id"],
+            requester_account_id=r["requester_account_id"],
+            requester_device_id=r["requester_device_id"],
+            status=r["status"],
+            created_at=r["created_at"],
+            approved_at=r["approved_at"],
+        )
+        for r in rows
+    ]
+    
+    return TrustedListResponse(entries=entries)
+
+
+@router.delete("/trusted/{trust_id}")
+async def trusted_delete(
+    trust_id: int,
+    user: TokenClaims = Depends(get_current_user),
+):
+    """
+    Revoke a trust relationship.
+    Either owner or requester can revoke.
+    """
+    conn = _db()
+    cur = conn.cursor()
+    
+    row = cur.execute(
+        """SELECT ta.id, ta.target_device_id, ta.requester_account_id, d.account_id as owner_id
+           FROM trusted_allowlist ta
+           JOIN device d ON ta.target_device_id = d.device_id
+           WHERE ta.id = ?""",
+        (trust_id,)
+    ).fetchone()
+    
+    if not row:
+        conn.close()
+        return JSONResponse(
+            status_code=404,
+            content={"ok": False, "error_code": "TRUST_NOT_FOUND", "message": "Trust entry not found"}
+        )
+    
+    if row["owner_id"] != user.account_id and row["requester_account_id"] != user.account_id:
+        conn.close()
+        return JSONResponse(
+            status_code=403,
+            content={"ok": False, "error_code": "NOT_AUTHORIZED", "message": "Not authorized to revoke this trust"}
+        )
+    
+    cur.execute("DELETE FROM trusted_allowlist WHERE id = ?", (trust_id,))
+    conn.commit()
+    conn.close()
+    
+    print(f"TRUST_REVOKE trust_id={trust_id} revoked_by={user.account_id}")
+    
+    return JSONResponse({"ok": True, "trust_id": trust_id, "status": "revoked"})
+
+
+# ==================== PASSWORD VERIFICATION ====================
+
+@router.post("/remote/password/verify", response_model=PasswordVerifyResponse)
+async def password_verify(
+    req: PasswordVerifyRequest,
+    request: Request,
+):
+    """
+    Verify password for direct remote access.
+    Alternative to approval flow for devices with password enabled.
+    """
+    client_ip = request.client.host if request.client else "unknown"
+    
+    conn = _db()
+    cur = conn.cursor()
+    
+    row = cur.execute(
+        """SELECT device_id, account_id, device_name, remote_password_hash, unattended_mode
+           FROM device WHERE device_id = ?""",
+        (req.target_device_id,)
+    ).fetchone()
+    
+    if not row:
+        conn.close()
+        print(f"PASSWORD_VERIFY target_device_id={req.target_device_id} success=false reason=device_not_found ip={client_ip}")
+        return JSONResponse(
+            status_code=404,
+            content={"ok": False, "error_code": "DEVICE_NOT_FOUND", "message": "Device not found"}
+        )
+    
+    if not row["remote_password_hash"]:
+        conn.close()
+        print(f"PASSWORD_VERIFY target_device_id={req.target_device_id} success=false reason=disabled ip={client_ip}")
+        return JSONResponse(
+            status_code=403,
+            content={"ok": False, "error_code": "PASSWORD_DISABLED", "message": "Password access not enabled for this device"}
+        )
+    
+    if not verify_password(req.password, row["remote_password_hash"]):
+        conn.close()
+        print(f"PASSWORD_VERIFY target_device_id={req.target_device_id} success=false reason=wrong_password ip={client_ip}")
+        return JSONResponse(
+            status_code=401,
+            content={"ok": False, "error_code": "INVALID_PASSWORD", "message": "Password incorrect"}
+        )
+    
+    conn.close()
+    
+    session = session_store.create_session(
+        target_device_id=req.target_device_id,
+        region="default",
+    )
+    
+    print(f"PASSWORD_VERIFY target_device_id={req.target_device_id} success=true session_id={session.session_id} ip={client_ip}")
+    
+    return PasswordVerifyResponse(
+        verified=True,
+        session_id=session.session_id,
+        signaling_ws_url=f"/sessions/{session.session_id}/ws",
+        controller_token=session.controller_token,
+    )
+

@@ -185,3 +185,36 @@ class RemoteHostReadyResponse(BaseModel):
     session_id: str
     host_token: str
     signaling_ws_url: str
+
+
+# ==================== PASSWORD VERIFICATION ====================
+
+class PasswordVerifyRequest(BaseModel):
+    """Verify password for direct remote access."""
+    target_device_id: str = Field(min_length=1, max_length=128)
+    password: str = Field(min_length=1, max_length=128)
+
+
+class PasswordVerifyResponse(BaseModel):
+    verified: bool
+    session_id: Optional[str] = None
+    signaling_ws_url: Optional[str] = None
+    controller_token: Optional[str] = None
+
+
+# ==================== TRUSTED ENHANCED ====================
+
+class TrustedRequestResponse(BaseModel):
+    """Response for trust request creation."""
+    trust_request_id: int
+    status: str
+    created_at: str
+    expires_at: str
+
+
+class TrustedApproveResponse(BaseModel):
+    """Response for trust approval."""
+    trust_id: int
+    status: str
+    permissions: dict
+
