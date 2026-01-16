@@ -286,6 +286,22 @@ TURN_SERVERS = {
     "sg": "turn-sg.afkzone.cloud",
 }
 
+# ==================== STARTUP LOGGING ====================
+# Log TURN config at startup to prevent environment confusion
+
+def _get_turn_config_summary() -> str:
+    """Return a summary of which TURN config is active."""
+    secret_preview = TURN_SECRET[:8] + "..." if len(TURN_SECRET) > 8 else TURN_SECRET
+    if TURN_URLS_ENV:
+        return f"TURN_URLS={TURN_URLS_ENV[:50]}... SECRET={secret_preview}"
+    elif TURN_PUBLIC_HOST:
+        return f"TURN_PUBLIC_HOST={TURN_PUBLIC_HOST} SECRET={secret_preview}"
+    else:
+        return f"TURN_FALLBACK=turn.afkzone.cloud SECRET={secret_preview}"
+
+# Log at module load
+print(f"TURN_CONFIG_STARTUP {_get_turn_config_summary()}")
+
 
 def mint_turn_credentials(session_id: str, region: str = "default") -> TurnCredentials:
     """Generate short-lived TURN credentials (TURN REST API format)."""
