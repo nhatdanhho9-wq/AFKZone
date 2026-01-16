@@ -93,6 +93,15 @@ class Session:
         # WebSocket connections
         self.controller_ws: Optional[WebSocket] = None
         self.host_ws: Optional[WebSocket] = None
+        
+        # Session stats (optional, updated by clients)
+        self.controller_connected = False
+        self.host_connected = False
+        self.ice_state: Optional[str] = None  # new, checking, connected, completed, failed, disconnected, closed
+        self.ice_path: Optional[str] = None  # "relay" or "direct" (srflx/host)
+        self.last_bitrate_kbps: Optional[int] = None
+        self.last_fps: Optional[int] = None
+        self.stats_updated_at: Optional[str] = None
 
 
 class SessionStore:
@@ -428,7 +437,7 @@ async def get_turn_credentials(session_id: str):
 
 @router.get("/{session_id}/status")
 async def get_session_status(session_id: str):
-    """Get session status."""
+    """Get session status with optional stats."""
     session = session_store.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -442,7 +451,59 @@ async def get_session_status(session_id: str):
         "features_requested": session.features_requested,
         "started_at": session.started_at,
         "closed_at": session.closed_at,
+        # Connection states
+        "controller_connected": session.controller_connected,
+        "host_connected": session.host_connected,
+        "host_ready": session.host_ready,
+        # ICE/WebRTC stats (optional)
+        "ice_state": session.ice_state,
+        "ice_path": session.ice_path,
+        # Performance stats (optional)
+        "last_bitrate_kbps": session.last_bitrate_kbps,
+        "last_fps": session.last_fps,
+        "stats_updated_at": session.stats_updated_at,
     }
+
+
+class SessionStatsUpdate(BaseModel):
+    """Optional stats update from client."""
+    ice_state: Optional[str] = None
+    ice_path: Optional[str] = None  # "relay" or "direct"
+    bitrate_kbps: Optional[int] = None
+    fps: Optional[int] = None
+
+
+@router.post("/{session_id}/stats")
+async def update_session_stats(session_id: str, stats: SessionStatsUpdate):
+    """
+    Update session stats (optional, for monitoring).
+    
+    Called by clients to report ICE state and performance metrics.
+    Logs SESSION_STATS for performance tracking.
+    """
+    session = session_store.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    now = datetime.now(timezone.utc).isoformat()
+    
+    # Update session stats
+    if stats.ice_state is not None:
+        session.ice_state = stats.ice_state
+    if stats.ice_path is not None:
+        session.ice_path = stats.ice_path
+    if stats.bitrate_kbps is not None:
+        session.last_bitrate_kbps = stats.bitrate_kbps
+    if stats.fps is not None:
+        session.last_fps = stats.fps
+    
+    session.stats_updated_at = now
+    
+    # Log performance stats if provided
+    if stats.bitrate_kbps is not None or stats.fps is not None:
+        print(f"SESSION_STATS session_id={session_id} ice_state={session.ice_state} ice_path={session.ice_path} bitrate_kbps={session.last_bitrate_kbps} fps={session.last_fps}")
+    
+    return {"ok": True, "updated_at": now}
 
 
 @router.get("/audit")
