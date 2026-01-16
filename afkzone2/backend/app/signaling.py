@@ -506,6 +506,36 @@ async def update_session_stats(session_id: str, stats: SessionStatsUpdate):
     return {"ok": True, "updated_at": now}
 
 
+class InputControlRequest(BaseModel):
+    """Request to start/stop input control in a session."""
+    action: str  # "start" or "stop"
+    controller_device_id: Optional[str] = None
+
+
+@router.post("/{session_id}/input-control")
+async def session_input_control(session_id: str, req: InputControlRequest):
+    """
+    Signal input control start/stop for a session.
+    
+    Clients call this when enabling/disabling remote input (keyboard/mouse/touch).
+    Logs INPUT_CONTROL_START or INPUT_CONTROL_STOP for audit.
+    """
+    session = session_store.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    now = datetime.now(timezone.utc).isoformat()
+    
+    if req.action == "start":
+        print(f"INPUT_CONTROL_START session_id={session_id} target_device_id={session.target_device_id} controller_device_id={req.controller_device_id} timestamp={now}")
+        return {"ok": True, "action": "start", "timestamp": now}
+    elif req.action == "stop":
+        print(f"INPUT_CONTROL_STOP session_id={session_id} target_device_id={session.target_device_id} controller_device_id={req.controller_device_id} timestamp={now}")
+        return {"ok": True, "action": "stop", "timestamp": now}
+    else:
+        raise HTTPException(status_code=400, detail="Invalid action. Use 'start' or 'stop'")
+
+
 @router.get("/audit")
 async def get_audit_log(session_id: Optional[str] = None, limit: int = 100):
     """Get session audit log."""
