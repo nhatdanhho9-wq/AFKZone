@@ -536,6 +536,60 @@ async def session_input_control(session_id: str, req: InputControlRequest):
         raise HTTPException(status_code=400, detail="Invalid action. Use 'start' or 'stop'")
 
 
+class DisconnectRequest(BaseModel):
+    """Request to disconnect a session."""
+    reason: Optional[str] = "user_initiated"  # user_initiated, timeout, error
+
+
+@router.post("/{session_id}/disconnect")
+async def session_disconnect(session_id: str, req: DisconnectRequest = DisconnectRequest()):
+    """
+    Disconnect a session and signal host to stop capture.
+    
+    Called by controller or host when ending remote session.
+    Logs SESSION_DISCONNECT for audit.
+    """
+    session = session_store.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    now = datetime.now(timezone.utc).isoformat()
+    
+    # Mark session as closed
+    session.status = "closed"
+    session.closed_at = now
+    session.close_reason = req.reason
+    
+    # Log disconnect event
+    print(f"SESSION_DISCONNECT session_id={session_id} target_device_id={session.target_device_id} reason={req.reason} timestamp={now}")
+    
+    # Notify host to stop capture via WebSocket if connected
+    if session.host_ws:
+        try:
+            await session.host_ws.send_json({
+                "type": "disconnect",
+                "session_id": session_id,
+                "reason": req.reason,
+                "ts": now,
+            })
+        except Exception:
+            pass  # Host may already be disconnected
+    
+    # Notify controller if connected
+    if session.controller_ws:
+        try:
+            await session.controller_ws.send_json({
+                "type": "disconnect",
+                "session_id": session_id,
+                "reason": req.reason,
+                "ts": now,
+            })
+        except Exception:
+            pass
+    
+    return {"ok": True, "session_id": session_id, "status": "closed", "reason": req.reason, "timestamp": now}
+
+
 @router.get("/audit")
 async def get_audit_log(session_id: Optional[str] = None, limit: int = 100):
     """Get session audit log."""
