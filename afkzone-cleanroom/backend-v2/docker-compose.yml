@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    ports:
+      - "21121:21121"
+    environment:
+      - JWT_SECRET=afkzone-production-secret
+      - AFK_TURN_SECRET=turn-secret
+      - AFK_TURN_HOST=turn.afkzone.cloud
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
