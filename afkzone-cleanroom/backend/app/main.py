@@ -121,14 +121,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS middleware
+# CORS middleware - configured for Flutter web testing
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Allow all origins for development
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["X-Error-Code", "X-Request-Id", "Content-Length"],
 )
+print("CORS_ENABLED allow_origins=* expose_headers=[X-Error-Code, X-Request-Id]")
 
 
 # Global exception handlers
