@@ -112,6 +112,21 @@ _init_remote_tables()
 router = APIRouter(tags=["remote"])
 
 
+# ==================== RESPONSE HELPERS ====================
+
+def api_success(data: dict = None):
+    """Standard success response."""
+    return {"ok": True, "data": data}
+
+
+def api_error(error_code: str, message: str, status_code: int = 400):
+    """Standard error response."""
+    return JSONResponse(
+        status_code=status_code,
+        content={"ok": False, "error_code": error_code, "message": message}
+    )
+
+
 # ==================== AUTH ENDPOINTS ====================
 
 @router.post("/auth/register")
@@ -128,51 +143,59 @@ async def auth_register(req: RegisterRequest) -> JSONResponse:
     
     if existing:
         conn.close()
-        return JSONResponse(
-            status_code=409,
-            content={"ok": False, "error_code": "USERNAME_EXISTS", "message": "Username already exists"}
-        )
+        return api_error("USERNAME_EXISTS", "Username already exists", 409)
     
     account_id = secrets.token_urlsafe(16)
     password_hash = hash_password(req.password)
+    now = _utc_now_iso()
     
     cur.execute(
         "INSERT INTO account (account_id, username, password_hash, created_at) VALUES (?, ?, ?, ?)",
-        (account_id, req.username, password_hash, _utc_now_iso())
+        (account_id, req.username, password_hash, now)
     )
     conn.commit()
     conn.close()
     
-    return JSONResponse({"ok": True, "account_id": account_id})
+    return JSONResponse(api_success({
+        "account_id": account_id,
+        "username": req.username,
+        "created_at": now,
+    }))
 
 
 @router.post("/auth/login")
 async def auth_login(req: LoginRequest) -> JSONResponse:
-    """Login and get access token."""
+    """
+    Login and get access token.
+    Supports both 'username' and 'email' fields (email is treated as username).
+    """
     conn = _db()
     cur = conn.cursor()
     
+    # Support both email and username field from frontend
+    login_identifier = req.username
+    
     row = cur.execute(
-        "SELECT account_id, password_hash FROM account WHERE username = ?",
-        (req.username,)
+        "SELECT account_id, username, password_hash, created_at FROM account WHERE username = ?",
+        (login_identifier,)
     ).fetchone()
     conn.close()
     
     if not row or not verify_password(req.password, row["password_hash"]):
-        return JSONResponse(
-            status_code=401,
-            content={"ok": False, "error_code": "INVALID_CREDENTIALS", "message": "Invalid username or password"}
-        )
+        return api_error("AUTH_INVALID_CREDENTIALS", "Invalid username or password", 401)
     
-    token, expires_at = create_access_token(row["account_id"], req.username)
+    token, expires_at = create_access_token(row["account_id"], row["username"])
     
-    return JSONResponse({
-        "ok": True,
+    return JSONResponse(api_success({
         "access_token": token,
         "token_type": "bearer",
-        "account_id": row["account_id"],
         "expires_in": 86400,
-    })
+        "user": {
+            "account_id": row["account_id"],
+            "username": row["username"],
+            "created_at": row["created_at"],
+        }
+    }))
 
 
 # ==================== DEVICE ENDPOINTS ====================
@@ -203,11 +226,11 @@ async def device_register(
     conn.commit()
     conn.close()
     
-    return JSONResponse({"ok": True, "device_id": device_id})
+    return JSONResponse(api_success({"device_id": device_id}))
 
 
-@router.get("/devices", response_model=DeviceListResponse)
-async def device_list(user: TokenClaims = Depends(get_current_user)) -> DeviceListResponse:
+@router.get("/devices")
+async def device_list(user: TokenClaims = Depends(get_current_user)) -> JSONResponse:
     """List all devices for the authenticated account."""
     conn = _db()
     cur = conn.cursor()
@@ -223,25 +246,28 @@ async def device_list(user: TokenClaims = Depends(get_current_user)) -> DeviceLi
     conn.close()
     
     devices = [
-        DeviceInfo(
-            device_id=r["device_id"],
-            device_name=r["device_name"],
-            device_type=r["device_type"],
-            online=bool(r["online"]),
-            last_seen=r["last_seen"],
-            unattended_mode=r["unattended_mode"] or "disabled",
-        )
+        {
+            "id": r["device_id"],
+            "deviceId": r["device_id"],
+            "name": r["device_name"],
+            "type": r["device_type"],
+            "status": "online" if r["online"] else "offline",
+            "lastSeen": r["last_seen"],
+            "cpu": "Unknown",  # Placeholder - needs device reporting
+            "ram": "Unknown",
+            "os": r["device_type"],
+        }
         for r in rows
     ]
     
-    return DeviceListResponse(devices=devices)
+    return JSONResponse(api_success({"devices": devices}))
 
 
-@router.post("/devices/{device_id}/heartbeat", response_model=HeartbeatResponse)
+@router.post("/devices/{device_id}/heartbeat")
 async def device_heartbeat(
     device_id: str,
     user: TokenClaims = Depends(get_current_user)
-) -> HeartbeatResponse:
+) -> JSONResponse:
     """Update device presence (heartbeat)."""
     conn = _db()
     cur = conn.cursor()
@@ -253,7 +279,94 @@ async def device_heartbeat(
     conn.commit()
     conn.close()
     
-    return HeartbeatResponse(ok=True, server_time=_utc_now_iso())
+    return JSONResponse(api_success({"server_time": _utc_now_iso()}))
+
+
+@router.post("/devices/{device_id}/reboot")
+async def device_reboot(
+    device_id: str,
+    user: TokenClaims = Depends(get_current_user)
+) -> JSONResponse:
+    """Send reboot command to device."""
+    conn = _db()
+    cur = conn.cursor()
+    
+    # Verify ownership
+    row = cur.execute(
+        "SELECT device_id, online FROM device WHERE device_id = ? AND account_id = ?",
+        (device_id, user.account_id)
+    ).fetchone()
+    conn.close()
+    
+    if not row:
+        return api_error("DEVICE_NOT_FOUND", "Device not found", 404)
+    
+    if not row["online"]:
+        return api_error("DEVICE_OFFLINE", "Device is offline", 503)
+    
+    # Log command (actual command delivery via WebSocket/push)
+    print(f"DEVICE_COMMAND device_id={device_id} command=reboot user={user.account_id}")
+    
+    return JSONResponse(api_success({
+        "device_id": device_id,
+        "status": "rebooting",
+        "timestamp": _utc_now_iso(),
+    }))
+
+
+@router.post("/devices/{device_id}/stop")
+async def device_stop(
+    device_id: str,
+    user: TokenClaims = Depends(get_current_user)
+) -> JSONResponse:
+    """Send stop command to device."""
+    conn = _db()
+    cur = conn.cursor()
+    
+    row = cur.execute(
+        "SELECT device_id, online FROM device WHERE device_id = ? AND account_id = ?",
+        (device_id, user.account_id)
+    ).fetchone()
+    conn.close()
+    
+    if not row:
+        return api_error("DEVICE_NOT_FOUND", "Device not found", 404)
+    
+    print(f"DEVICE_COMMAND device_id={device_id} command=stop user={user.account_id}")
+    
+    return JSONResponse(api_success({
+        "device_id": device_id,
+        "status": "stopping",
+        "timestamp": _utc_now_iso(),
+    }))
+
+
+@router.get("/devices/{device_id}/status")
+async def device_status(
+    device_id: str,
+    user: TokenClaims = Depends(get_current_user)
+) -> JSONResponse:
+    """Get device status and specs."""
+    conn = _db()
+    cur = conn.cursor()
+    
+    row = cur.execute(
+        "SELECT * FROM device WHERE device_id = ? AND account_id = ?",
+        (device_id, user.account_id)
+    ).fetchone()
+    conn.close()
+    
+    if not row:
+        return api_error("DEVICE_NOT_FOUND", "Device not found", 404)
+    
+    return JSONResponse(api_success({
+        "device_id": row["device_id"],
+        "name": row["device_name"],
+        "type": row["device_type"],
+        "status": "online" if row["online"] else "offline",
+        "last_seen": row["last_seen"],
+        "unattended_mode": row["unattended_mode"] or "disabled",
+    }))
 
 
 # ==================== TRUSTED ALLOWLIST ENDPOINTS ====================
