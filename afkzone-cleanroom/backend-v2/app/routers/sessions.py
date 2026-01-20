@@ -202,6 +202,74 @@ async def post_stats(session_id: str) -> JSONResponse:
     return JSONResponse(api_success({"updated_at": now}))
 
 
+# ==================== DEVICE CONTROL CHANNEL ====================
+
+@router.websocket("/device/{device_id}/control")
+async def device_control_websocket(websocket: WebSocket, device_id: str, token: str = None):
+    """Device control WebSocket - notifies host of new session requests."""
+    await websocket.accept()
+    
+    # Store connection
+    device_control_ws[device_id] = websocket
+    print(f"DEVICE_CONTROL_CONNECT device_id={device_id} timestamp={utc_now_iso()}")
+    
+    # Send any pending sessions immediately
+    pending = pending_sessions.get(device_id, [])
+    for session_id in pending:
+        try:
+            await websocket.send_json({
+                "type": "REMOTE_REQUESTED",
+                "session_id": session_id
+            })
+        except:
+            pass
+    
+    try:
+        while True:
+            # Keep connection alive, handle pings
+            data = await websocket.receive_json()
+            msg_type = data.get("type", "unknown")
+            
+            if msg_type == "PONG":
+                pass  # Keepalive response
+            elif msg_type == "SESSION_ACCEPTED":
+                session_id = data.get("session_id")
+                if session_id and device_id in pending_sessions:
+                    if session_id in pending_sessions[device_id]:
+                        pending_sessions[device_id].remove(session_id)
+                print(f"SESSION_ACCEPTED device_id={device_id} session_id={session_id}")
+                
+    except WebSocketDisconnect:
+        print(f"DEVICE_CONTROL_DISCONNECT device_id={device_id} timestamp={utc_now_iso()}")
+        if device_id in device_control_ws:
+            del device_control_ws[device_id]
+    except Exception as e:
+        print(f"DEVICE_CONTROL_ERROR device_id={device_id} error={str(e)}")
+
+
+@router.get("/pending")
+async def get_pending_sessions(device_id: str = None) -> JSONResponse:
+    """Get pending session requests for a device."""
+    if not device_id:
+        return api_error("MISSING_DEVICE_ID", "device_id query param required", 400)
+    
+    pending = pending_sessions.get(device_id, [])
+    
+    requests = []
+    for session_id in pending:
+        session = get_session(session_id)
+        if session:
+            requests.append({
+                "id": session.session_id,
+                "host_device_id": session.host_device_id,
+                "client_user_id": session.client_user_id,
+                "state": session.state,
+                "created_at": session.created_at
+            })
+    
+    return JSONResponse(api_success({"requests": requests}))
+
+
 # ==================== DEVICE CONTROL ====================
 
 @router.websocket("/devices/{device_id}/control")
