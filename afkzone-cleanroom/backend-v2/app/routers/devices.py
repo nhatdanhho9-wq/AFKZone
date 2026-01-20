@@ -132,6 +132,8 @@ from typing import Optional
 
 class HeartbeatRequest(BaseModel):
     status: str = "online"  # online | idle | offline
+    fps: Optional[int] = None
+    bitrate_kbps: Optional[int] = None
 
 
 class RemoteAccessRequest(BaseModel):
@@ -262,17 +264,28 @@ async def device_heartbeat(
     device_id: str,
     req: HeartbeatRequest = None
 ) -> JSONResponse:
-    """Device agent heartbeat - updates status and last_seen."""
+    """Device agent heartbeat - updates status, stats, and last_seen."""
     conn = get_db()
     cur = conn.cursor()
     
     status = req.status if req else "online"
+    fps = req.fps if req else None
+    bitrate = req.bitrate_kbps if req else None
     now = utc_now_iso()
     
-    cur.execute(
-        "UPDATE devices SET status = ?, last_seen_at = ? WHERE id = ?",
-        (status, now, device_id)
-    )
+    # Build dynamic update
+    updates = ["status = ?", "last_seen_at = ?"]
+    params = [status, now]
+    
+    if fps is not None:
+        updates.append("last_fps = ?")
+        params.append(fps)
+    if bitrate is not None:
+        updates.append("last_bitrate_kbps = ?")
+        params.append(bitrate)
+    
+    params.append(device_id)
+    cur.execute(f"UPDATE devices SET {', '.join(updates)} WHERE id = ?", params)
     affected = cur.rowcount
     conn.commit()
     conn.close()
@@ -280,7 +293,12 @@ async def device_heartbeat(
     if affected == 0:
         return api_error("DEVICE_NOT_FOUND", "Device not found", 404)
     
-    print(f"HEARTBEAT device_id={device_id} status={status} timestamp={now}")
+    log_msg = f"HEARTBEAT device_id={device_id} status={status}"
+    if fps:
+        log_msg += f" fps={fps}"
+    if bitrate:
+        log_msg += f" bitrate_kbps={bitrate}"
+    print(log_msg)
     
     return JSONResponse(api_success({"status": status, "server_time": now}))
 
@@ -359,13 +377,14 @@ async def register_device(
     cur = conn.cursor()
     
     device_id = f"dev_{secrets.token_urlsafe(8)}"
+    agent_token = secrets.token_urlsafe(32)  # Agent-scoped token
     now = utc_now_iso()
     
     cur.execute(
         """INSERT INTO devices 
-           (id, owner_user_id, name, type, status, vcpu, ram_gb, description, remote_access_enabled, last_seen_at, created_at) 
-           VALUES (?, ?, ?, ?, 'online', ?, ?, ?, 1, ?, ?)""",
-        (device_id, user.user_id, req.name, req.type, req.vcpu, req.ram_gb, req.description, now, now)
+           (id, owner_user_id, name, type, status, vcpu, ram_gb, description, remote_access_enabled, agent_token_hash, last_seen_at, created_at) 
+           VALUES (?, ?, ?, ?, 'online', ?, ?, ?, 1, ?, ?, ?)""",
+        (device_id, user.user_id, req.name, req.type, req.vcpu, req.ram_gb, req.description, agent_token, now, now)
     )
     conn.commit()
     conn.close()
@@ -378,5 +397,6 @@ async def register_device(
             "name": req.name,
             "type": req.type,
             "status": "online"
-        }
+        },
+        "agent_token": agent_token
     }))

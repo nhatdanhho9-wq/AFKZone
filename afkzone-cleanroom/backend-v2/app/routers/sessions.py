@@ -30,6 +30,12 @@ class SessionState:
 
 sessions: Dict[str, SessionState] = {}
 
+# Device control connections (device_id -> WebSocket)
+device_control_ws: Dict[str, WebSocket] = {}
+
+# Pending sessions per device (device_id -> list of session_ids)
+pending_sessions: Dict[str, list] = {}
+
 
 def get_session(session_id: str) -> Optional[SessionState]:
     return sessions.get(session_id)
@@ -38,7 +44,27 @@ def get_session(session_id: str) -> Optional[SessionState]:
 def create_session(session_id: str, host_device_id: str, client_user_id: str) -> SessionState:
     session = SessionState(session_id, host_device_id, client_user_id)
     sessions[session_id] = session
+    
+    # Add to pending for device
+    if host_device_id not in pending_sessions:
+        pending_sessions[host_device_id] = []
+    pending_sessions[host_device_id].append(session_id)
+    
     return session
+
+
+async def notify_device_new_session(device_id: str, session_id: str):
+    """Notify device of new session request via control WS."""
+    ws = device_control_ws.get(device_id)
+    if ws:
+        try:
+            await ws.send_json({
+                "type": "REMOTE_REQUESTED",
+                "session_id": session_id
+            })
+            print(f"REMOTE_REQUESTED sent to device_id={device_id} session_id={session_id}")
+        except Exception as e:
+            print(f"REMOTE_REQUESTED failed device_id={device_id} error={e}")
 
 
 @router.websocket("/{session_id}/ws")
@@ -174,3 +200,57 @@ async def post_stats(session_id: str) -> JSONResponse:
     conn.close()
     
     return JSONResponse(api_success({"updated_at": now}))
+
+
+# ==================== DEVICE CONTROL ====================
+
+@router.websocket("/devices/{device_id}/control")
+async def device_control_websocket(websocket: WebSocket, device_id: str, token: str = None):
+    """Device control channel - receives REMOTE_REQUESTED notifications."""
+    await websocket.accept()
+    
+    # Register device
+    device_control_ws[device_id] = websocket
+    print(f"DEVICE_CONTROL_CONNECT device_id={device_id} timestamp={utc_now_iso()}")
+    
+    # Send any pending session requests
+    if device_id in pending_sessions:
+        for session_id in pending_sessions[device_id]:
+            try:
+                await websocket.send_json({
+                    "type": "REMOTE_REQUESTED",
+                    "session_id": session_id
+                })
+            except:
+                pass
+    
+    try:
+        while True:
+            data = await websocket.receive_json()
+            msg_type = data.get("type", "unknown")
+            print(f"DEVICE_CONTROL_MSG device_id={device_id} type={msg_type}")
+            
+            if msg_type == "HEARTBEAT":
+                await websocket.send_json({"type": "HEARTBEAT_ACK", "server_time": utc_now_iso()})
+                
+    except WebSocketDisconnect:
+        print(f"DEVICE_CONTROL_DISCONNECT device_id={device_id} timestamp={utc_now_iso()}")
+        if device_id in device_control_ws:
+            del device_control_ws[device_id]
+    except Exception as e:
+        print(f"DEVICE_CONTROL_ERROR device_id={device_id} error={str(e)}")
+        if device_id in device_control_ws:
+            del device_control_ws[device_id]
+
+
+@router.get("/pending")
+async def get_pending_sessions(device_id: str = None) -> JSONResponse:
+    """Get pending session requests for a device (polling fallback)."""
+    if not device_id:
+        return api_error("DEVICE_ID_REQUIRED", "device_id query param required", 400)
+    
+    sessions_list = pending_sessions.get(device_id, [])
+    
+    return JSONResponse(api_success({
+        "requests": [{"id": sid, "session_id": sid} for sid in sessions_list]
+    }))

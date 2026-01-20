@@ -61,6 +61,9 @@ def init_db():
             description TEXT,
             remote_password_hash TEXT,
             remote_access_enabled INTEGER DEFAULT 1,
+            agent_token_hash TEXT,
+            last_fps INTEGER,
+            last_bitrate_kbps INTEGER,
             last_seen_at TEXT,
             created_at TEXT NOT NULL
         )
