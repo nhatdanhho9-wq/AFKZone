@@ -135,7 +135,16 @@ class HeartbeatRequest(BaseModel):
 
 
 class RemoteAccessRequest(BaseModel):
-    enabled: bool
+    enabled: Optional[bool] = None
+    remote_access_enabled: Optional[bool] = None
+    
+    def get_enabled(self) -> bool:
+        """Get enabled value from either field."""
+        if self.enabled is not None:
+            return self.enabled
+        if self.remote_access_enabled is not None:
+            return self.remote_access_enabled
+        return True  # Default to enabled
 
 
 class DeviceRegisterRequest(BaseModel):
@@ -297,19 +306,20 @@ async def toggle_remote_access(
         return api_error("NOT_OWNER", "Device not found or not owned by you", 403)
     
     # Update remote_access_enabled field
+    enabled_value = req.get_enabled()
     cur.execute(
         "UPDATE devices SET remote_access_enabled = ? WHERE id = ?",
-        (1 if req.enabled else 0, device_id)
+        (1 if enabled_value else 0, device_id)
     )
     conn.commit()
     conn.close()
     
-    action = "ENABLE_SCREEN_CAPTURE_SENT" if req.enabled else "DISABLE_SCREEN_CAPTURE"
+    action = "ENABLE_SCREEN_CAPTURE_SENT" if enabled_value else "DISABLE_SCREEN_CAPTURE"
     print(f"{action} device_id={device_id} user_id={user.user_id}")
     
     return JSONResponse(api_success({
         "device_id": device_id,
-        "remote_access_enabled": req.enabled
+        "remote_access_enabled": enabled_value
     }))
 
 
