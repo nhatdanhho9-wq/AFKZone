@@ -146,6 +146,108 @@ class DeviceRegisterRequest(BaseModel):
     description: Optional[str] = None
 
 
+class DeviceUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    type: Optional[str] = None
+    vcpu: Optional[int] = None
+    ram_gb: Optional[int] = None
+
+
+@router.patch("/devices/{device_id}")
+async def update_device(
+    device_id: str,
+    req: DeviceUpdateRequest,
+    user: TokenClaims = Depends(get_current_user)
+) -> JSONResponse:
+    """Update device name/description (rename)."""
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Verify ownership
+    row = cur.execute(
+        "SELECT * FROM devices WHERE id = ? AND owner_user_id = ?",
+        (device_id, user.user_id)
+    ).fetchone()
+    
+    if not row:
+        conn.close()
+        return api_error("NOT_OWNER", "Device not found or not owned by you", 403)
+    
+    updates = []
+    params = []
+    
+    if req.name is not None:
+        updates.append("name = ?")
+        params.append(req.name)
+    if req.description is not None:
+        updates.append("description = ?")
+        params.append(req.description)
+    if req.type is not None:
+        updates.append("type = ?")
+        params.append(req.type)
+    if req.vcpu is not None:
+        updates.append("vcpu = ?")
+        params.append(req.vcpu)
+    if req.ram_gb is not None:
+        updates.append("ram_gb = ?")
+        params.append(req.ram_gb)
+    
+    if updates:
+        params.append(device_id)
+        cur.execute(f"UPDATE devices SET {', '.join(updates)} WHERE id = ?", params)
+        conn.commit()
+    
+    # Get updated device
+    row = cur.execute("SELECT * FROM devices WHERE id = ?", (device_id,)).fetchone()
+    conn.close()
+    
+    print(f"DEVICE_UPDATE device_id={device_id} user_id={user.user_id}")
+    
+    return JSONResponse(api_success({
+        "device": {
+            "id": row["id"],
+            "name": row["name"],
+            "type": row["type"],
+            "status": row["status"],
+            "vcpu": row["vcpu"],
+            "ram_gb": row["ram_gb"],
+            "description": row["description"]
+        }
+    }))
+
+
+@router.delete("/devices/{device_id}")
+async def delete_device(
+    device_id: str,
+    user: TokenClaims = Depends(get_current_user)
+) -> JSONResponse:
+    """Delete a device."""
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Verify ownership
+    row = cur.execute(
+        "SELECT * FROM devices WHERE id = ? AND owner_user_id = ?",
+        (device_id, user.user_id)
+    ).fetchone()
+    
+    if not row:
+        conn.close()
+        return api_error("NOT_OWNER", "Device not found or not owned by you", 403)
+    
+    # Delete from trusted_devices first
+    cur.execute("DELETE FROM trusted_devices WHERE device_id = ?", (device_id,))
+    # Delete device
+    cur.execute("DELETE FROM devices WHERE id = ?", (device_id,))
+    conn.commit()
+    conn.close()
+    
+    print(f"DEVICE_DELETE device_id={device_id} user_id={user.user_id}")
+    
+    return JSONResponse(api_success({"deleted": True, "device_id": device_id}))
+
+
 @router.post("/devices/{device_id}/heartbeat")
 async def device_heartbeat(
     device_id: str,
