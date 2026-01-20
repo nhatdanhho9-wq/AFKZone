@@ -249,8 +249,24 @@ async def get_pending_sessions(device_id: str = None) -> JSONResponse:
     if not device_id:
         return api_error("DEVICE_ID_REQUIRED", "device_id query param required", 400)
     
-    sessions_list = pending_sessions.get(device_id, [])
+    # Query database for pending/requested sessions
+    conn = get_db()
+    cur = conn.cursor()
+    rows = cur.execute(
+        "SELECT id, host_device_id, client_user_id, state, created_at FROM sessions WHERE host_device_id = ? AND state IN ('requested', 'pending') ORDER BY created_at DESC LIMIT 10",
+        (device_id,)
+    ).fetchall()
+    conn.close()
     
-    return JSONResponse(api_success({
-        "requests": [{"id": sid, "session_id": sid} for sid in sessions_list]
-    }))
+    requests = []
+    for row in rows:
+        requests.append({
+            "id": row["id"],
+            "session_id": row["id"],
+            "host_device_id": row["host_device_id"],
+            "client_user_id": row["client_user_id"],
+            "state": row["state"],
+            "created_at": row["created_at"]
+        })
+    
+    return JSONResponse(api_success({"requests": requests}))
