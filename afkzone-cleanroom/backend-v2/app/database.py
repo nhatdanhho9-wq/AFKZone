@@ -60,6 +60,7 @@ def init_db():
             ram_gb INTEGER DEFAULT 4,
             description TEXT,
             remote_password_hash TEXT,
+            remote_access_enabled INTEGER DEFAULT 1,
             last_seen_at TEXT,
             created_at TEXT NOT NULL
         )

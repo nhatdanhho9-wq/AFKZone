@@ -122,3 +122,149 @@ async def stop_device(
     print(f"DEVICE_STOP device_id={device_id} user_id={user.user_id}")
     
     return JSONResponse(api_success())
+
+
+# ==================== AGENT ENDPOINTS ====================
+
+from pydantic import BaseModel
+from typing import Optional
+
+
+class HeartbeatRequest(BaseModel):
+    status: str = "online"  # online | idle | offline
+
+
+class RemoteAccessRequest(BaseModel):
+    enabled: bool
+
+
+class DeviceRegisterRequest(BaseModel):
+    name: str
+    type: str = "cloud"
+    vcpu: int = 2
+    ram_gb: int = 4
+    description: Optional[str] = None
+
+
+@router.post("/devices/{device_id}/heartbeat")
+async def device_heartbeat(
+    device_id: str,
+    req: HeartbeatRequest = None
+) -> JSONResponse:
+    """Device agent heartbeat - updates status and last_seen."""
+    conn = get_db()
+    cur = conn.cursor()
+    
+    status = req.status if req else "online"
+    now = utc_now_iso()
+    
+    cur.execute(
+        "UPDATE devices SET status = ?, last_seen_at = ? WHERE id = ?",
+        (status, now, device_id)
+    )
+    affected = cur.rowcount
+    conn.commit()
+    conn.close()
+    
+    if affected == 0:
+        return api_error("DEVICE_NOT_FOUND", "Device not found", 404)
+    
+    print(f"HEARTBEAT device_id={device_id} status={status} timestamp={now}")
+    
+    return JSONResponse(api_success({"status": status, "server_time": now}))
+
+
+@router.patch("/devices/{device_id}/remote-access")
+async def toggle_remote_access(
+    device_id: str,
+    req: RemoteAccessRequest,
+    user: TokenClaims = Depends(get_current_user)
+) -> JSONResponse:
+    """Toggle remote access permission for device."""
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Verify ownership
+    row = cur.execute(
+        "SELECT * FROM devices WHERE id = ? AND owner_user_id = ?",
+        (device_id, user.user_id)
+    ).fetchone()
+    
+    if not row:
+        conn.close()
+        return api_error("NOT_OWNER", "Device not found or not owned by you", 403)
+    
+    # Update remote_access_enabled field
+    cur.execute(
+        "UPDATE devices SET remote_access_enabled = ? WHERE id = ?",
+        (1 if req.enabled else 0, device_id)
+    )
+    conn.commit()
+    conn.close()
+    
+    action = "ENABLE_SCREEN_CAPTURE_SENT" if req.enabled else "DISABLE_SCREEN_CAPTURE"
+    print(f"{action} device_id={device_id} user_id={user.user_id}")
+    
+    return JSONResponse(api_success({
+        "device_id": device_id,
+        "remote_access_enabled": req.enabled
+    }))
+
+
+@router.get("/devices/{device_id}/remote-access")
+async def get_remote_access(
+    device_id: str,
+    user: TokenClaims = Depends(get_current_user)
+) -> JSONResponse:
+    """Get remote access permission state."""
+    conn = get_db()
+    cur = conn.cursor()
+    
+    row = cur.execute(
+        "SELECT remote_access_enabled FROM devices WHERE id = ? AND owner_user_id = ?",
+        (device_id, user.user_id)
+    ).fetchone()
+    conn.close()
+    
+    if not row:
+        return api_error("NOT_OWNER", "Device not found or not owned by you", 403)
+    
+    return JSONResponse(api_success({
+        "device_id": device_id,
+        "remote_access_enabled": bool(row["remote_access_enabled"]) if row["remote_access_enabled"] is not None else True
+    }))
+
+
+@router.post("/devices/register")
+async def register_device(
+    req: DeviceRegisterRequest,
+    user: TokenClaims = Depends(get_current_user)
+) -> JSONResponse:
+    """Register a new device (from agent)."""
+    import secrets
+    
+    conn = get_db()
+    cur = conn.cursor()
+    
+    device_id = f"dev_{secrets.token_urlsafe(8)}"
+    now = utc_now_iso()
+    
+    cur.execute(
+        """INSERT INTO devices 
+           (id, owner_user_id, name, type, status, vcpu, ram_gb, description, remote_access_enabled, last_seen_at, created_at) 
+           VALUES (?, ?, ?, ?, 'online', ?, ?, ?, 1, ?, ?)""",
+        (device_id, user.user_id, req.name, req.type, req.vcpu, req.ram_gb, req.description, now, now)
+    )
+    conn.commit()
+    conn.close()
+    
+    print(f"DEVICE_REGISTER device_id={device_id} owner={user.user_id} name={req.name}")
+    
+    return JSONResponse(status_code=201, content=api_success({
+        "device": {
+            "id": device_id,
+            "name": req.name,
+            "type": req.type,
+            "status": "online"
+        }
+    }))
