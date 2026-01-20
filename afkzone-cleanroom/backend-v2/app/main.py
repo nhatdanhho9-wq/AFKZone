@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.database import init_db
-from app.routers import auth, user, devices, trusted, remote, plans, notifications
+from app.routers import auth, user, devices, trusted, remote, plans, notifications, admin
 
 
 @asynccontextmanager
@@ -56,6 +56,7 @@ app.include_router(trusted.router, prefix="/trusted", tags=["trusted"])
 app.include_router(remote.router, prefix="/remote", tags=["remote"])
 app.include_router(plans.router, tags=["plans"])
 app.include_router(notifications.router, prefix="/user", tags=["notifications"])
+app.include_router(admin.router, prefix="/admin", tags=["admin"])
 
 
 @app.get("/health")
